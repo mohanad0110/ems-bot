@@ -25,15 +25,30 @@ const client = new Client({
 const PREFIX = '!';
 const POINTS_FILE = './points.json';
 
+// دالة جلب البيانات المحدثة لدعم النقاط والتحذيرات التراكمية
 function getPointsData() {
-    if (!fs.existsSync(POINTS_FILE)) fs.writeFileSync(POINTS_FILE, JSON.stringify({}));
-    return JSON.parse(fs.readFileSync(POINTS_FILE, 'utf-8'));
+    if (!fs.existsSync(POINTS_FILE)) fs.writeFileSync(POINTS_FILE, JSON.stringify({ points: {}, warnings: {} }));
+    let data;
+    try {
+        data = JSON.parse(fs.readFileSync(POINTS_FILE, 'utf-8'));
+    } catch (e) {
+        data = {};
+    }
+    if (!data.points) data.points = {};
+    if (!data.warnings) data.warnings = {};
+    return data;
 }
+
 function savePointsData(data) {
     fs.writeFileSync(POINTS_FILE, JSON.stringify(data, null, 4));
 }
 
 // ================= [ 🚑 إعدادات الرتب ورومات اللوق بالـ ID 🚑 ] =================
+
+// 🆕 ⚠️ حط هنا IDs رتب التحذيرات حقت سيرفرك:
+const ROLE_WARN_1 = '1515788388110962768'; 
+const ROLE_WARN_2 = '1515788389671108649'; 
+const ROLE_WARN_3 = '1515788391449366648'; 
 
 // 🆕 حط ID روم الترحيب هنا
 const CHANNEL_WELCOME_LOG = '1515788540116467972'; 
@@ -111,8 +126,8 @@ client.on('messageCreate', async (message) => {
         
         if (!targetMember) return message.reply('❌ تعذر العثور على العضو، يرجى كتابة الـ ID بشكل صحيح.');
         
-        const pointsData = getPointsData();
-        const userPoints = pointsData[targetId] || 0;
+        const allData = getPointsData();
+        const userPoints = allData.points[targetId] || 0;
 
         const pointsEmbed = new EmbedBuilder()
             .setTitle('📊 السجل الرقمي لنقاط الموظف 📊')
@@ -293,13 +308,17 @@ client.on('interactionCreate', async (interaction) => {
         
         if (!targetMember) return interaction.reply({ content: '❌ تعذر العثور على هذا الشخص بالسيرفر، تأكد من الـ ID الصحيح.', ephemeral: true });
 
-        const pointsData = getPointsData();
-        const userPoints = pointsData[targetId] || 0;
+        const allData = getPointsData();
+        const userPoints = allData.points[targetId] || 0;
+        const userWarns = allData.warnings[targetId] || 0;
 
         const pointsEmbed = new EmbedBuilder()
-            .setTitle('📊 تفاصيل رصيد النقاط من لوحة التحكم 📊')
+            .setTitle('📊 تفاصيل سجل الموظف من لوحة التحكم 📊')
             .setDescription(`الموظف المستعلم عنه: ${targetMember}`)
-            .addFields({ name: '✨ إجمالي النقاط المسجلة حالياً:', value: `**${userPoints}** نقطة` })
+            .addFields(
+                { name: '✨ إجمالي النقاط المسجلة حالياً:', value: `**${userPoints}** نقطة`, inline: true },
+                { name: '⚠️ عدد التحذيرات التراكمية:', value: `**${userWarns}** تحذير`, inline: true }
+            )
             .setColor('#3498db')
             .setTimestamp();
 
@@ -350,7 +369,7 @@ client.on('interactionCreate', async (interaction) => {
             ).setColor(actionType === 'promote' ? '#2ecc71' : '#e67e22').setTimestamp();
 
         const currentLogId = actionType === 'promote' ? LOG_PROMOTION : LOG_DEMOTE;
-        const logChannel = interaction.guild.roles.cache.get(currentLogId);
+        const logChannel = interaction.guild.channels.cache.get(currentLogId);
         if (logChannel) await logChannel.send({ embeds: [logEmbed] });
 
         await targetMember.send(`✉️ إشعار إداري رسمي: تم ${actionType === 'promote' ? 'ترقيتك إلى' : 'تنزيل رتبتك من'} رتبة: **${role.name}** بقطاع الصحة.`).catch(() => null);
@@ -370,17 +389,53 @@ client.on('interactionCreate', async (interaction) => {
         let color = '#ffffff'; let actionTitle = '';
         let pointsMessageDetail = '';
 
+        const allData = getPointsData();
+
         if (actionFull === 'warn') { 
             logChannelId = LOG_WARN;
             color = '#f1c40f'; 
-            actionTitle = '⚠️ توجيه إنذار / تحذير طاقم فرعي'; 
+            
+            // زيادة عدد التحذيرات في قاعدة البيانات
+            const currentWarns = allData.warnings[targetId] || 0;
+            const newWarns = currentWarns + 1;
+            allData.warnings[targetId] = newWarns;
+            savePointsData(allData);
+
+            // إدارة إعطاء رتب التحذير وسحب السابقة تلقائياً بالديسكورد
+            if (newWarns === 1) {
+                if (ROLE_WARN_1 && ROLE_WARN_1.length > 5) await targetMember.roles.add(ROLE_WARN_1).catch(() => null);
+            } else if (newWarns === 2) {
+                if (ROLE_WARN_1 && ROLE_WARN_1.length > 5) await targetMember.roles.remove(ROLE_WARN_1).catch(() => null);
+                if (ROLE_WARN_2 && ROLE_WARN_2.length > 5) await targetMember.roles.add(ROLE_WARN_2).catch(() => null);
+            } else if (newWarns === 3) {
+                if (ROLE_WARN_2 && ROLE_WARN_2.length > 5) await targetMember.roles.remove(ROLE_WARN_2).catch(() => null);
+                if (ROLE_WARN_3 && ROLE_WARN_3.length > 5) await targetMember.roles.add(ROLE_WARN_3).catch(() => null);
+            }
+
+            let warnLevelName = `وورن ${newWarns}`;
+            if (newWarns > 3) {
+                warnLevelName = `متعدي الحد الأقصى (التحذير رقم ${newWarns})`;
+            }
+
+            actionTitle = `⚠️ توجيه إنذار / تحذير طاقم فرعي [${warnLevelName}]`; 
+            pointsMessageDetail = `\n📊 السجل التراكمي للتحذيرات: العضو لديه الآن **${newWarns}** تحذيرات وتم تحديث رتبته بالسيرفر.`;
         }
         else if (actionFull === 'fire') { 
             logChannelId = LOG_FIRE;
             color = '#c0392b'; 
             actionTitle = '❌ قرار فصل رسمي ومسح صلاحيات الصحة'; 
-            const allEmsRoleIds = [ROLE_ACCEPT_1, ROLE_ACCEPT_2, ...EMS_ROLES.map(r => r.value)].filter(id => id && id.length > 5);
+            
+            // سحب كل رتب الصحة ورتب التحذيرات كاملة عند الفصل
+            const allEmsRoleIds = [
+                ROLE_ACCEPT_1, ROLE_ACCEPT_2, 
+                ROLE_WARN_1, ROLE_WARN_2, ROLE_WARN_3,
+                ...EMS_ROLES.map(r => r.value)
+            ].filter(id => id && id.length > 5);
+            
             await targetMember.roles.remove(allEmsRoleIds).catch(() => null);
+            
+            allData.warnings[targetId] = 0;
+            savePointsData(allData);
         }
         else if (actionFull.startsWith('points')) { 
             logChannelId = LOG_POINTS;
@@ -388,11 +443,10 @@ client.on('interactionCreate', async (interaction) => {
             const pointsAmount = parseInt(reasonOrValue);
             
             if (isNaN(pointsAmount) || pointsAmount <= 0) {
-                return interaction.reply({ content: '❌ خطأ: الرجاء إدخال أرقام صحيحة وموجبة فقط في حقل النقاط.', ephemeral: true });
+                return interaction.reply({ content: '❌ خطأ: الرجاء إدخل أرقام صحيحة وموجبة فقط في حقل النقاط.', ephemeral: true });
             }
 
-            const pointsData = getPointsData();
-            const currentPoints = pointsData[targetId] || 0;
+            const currentPoints = allData.points[targetId] || 0;
             let newPoints = currentPoints;
 
             if (actionFull.includes('add')) {
@@ -403,8 +457,8 @@ client.on('interactionCreate', async (interaction) => {
                 actionTitle = `➖ سحب نقاط وعقوبة (-${pointsAmount})`;
             }
 
-            pointsData[targetId] = newPoints;
-            savePointsData(pointsData); 
+            allData.points[targetId] = newPoints;
+            savePointsData(allData); 
 
             pointsMessageDetail = `\n📊 الرصيد الإجمالي للموظف الآن: **${newPoints}** نقطة مسجلة.`;
         }
@@ -423,7 +477,7 @@ client.on('interactionCreate', async (interaction) => {
         if (logChannel) await logChannel.send({ embeds: [logEmbed] });
 
         await targetMember.send(`✉️ إشعار إداري عاجل من الإدارة الطبية:\nالإجراء المتخذ: **${actionTitle}**\n${pointsMessageDetail ? pointsMessageDetail : `البيان والتفاصيل: ${reasonOrValue}`}`).catch(() => null);
-        await interaction.reply({ content: `✅ تم تنفيذ الإجراء الإداري وتحديث قاعدة بيانات النقاط وتوثيقه باللوغ!`, ephemeral: true });
+        await interaction.reply({ content: `✅ تم تنفيذ الإجراء الإداري وتحديث قاعدة البيانات وتوثيقه باللوغ!`, ephemeral: true });
     }
 });
 
