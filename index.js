@@ -25,9 +25,9 @@ const client = new Client({
 const PREFIX = '!';
 const POINTS_FILE = './points.json';
 
-// دالة جلب البيانات المحدثة لدعم النقاط والتحذيرات التراكمية
+// دالة جلب البيانات المحدثة لدعم النقاط، التحذيرات، وساعات العمل
 function getPointsData() {
-    if (!fs.existsSync(POINTS_FILE)) fs.writeFileSync(POINTS_FILE, JSON.stringify({ points: {}, warnings: {} }));
+    if (!fs.existsSync(POINTS_FILE)) fs.writeFileSync(POINTS_FILE, JSON.stringify({ points: {}, warnings: {}, duty_hours: {} }));
     let data;
     try {
         data = JSON.parse(fs.readFileSync(POINTS_FILE, 'utf-8'));
@@ -36,12 +36,16 @@ function getPointsData() {
     }
     if (!data.points) data.points = {};
     if (!data.warnings) data.warnings = {};
+    if (!data.duty_hours) data.duty_hours = {}; // حفظ الساعات الكلية بالدقائق
     return data;
 }
 
 function savePointsData(data) {
     fs.writeFileSync(POINTS_FILE, JSON.stringify(data, null, 4));
 }
+
+// ماب مؤقت لحفظ وقت دخول الموظفين الحاليين (أون ديوتي)
+const activeDuty = new Map();
 
 // ================= [ 🚑 إعدادات الرتب ورومات اللوق بالـ ID 🚑 ] =================
 
@@ -52,8 +56,10 @@ const ROLE_WARN_3 = '1515788391449366648';
 
 // 🆕 حط ID روم الترحيب هنا
 const CHANNEL_WELCOME_LOG = '1515788540116467972'; 
-
 const CHANNEL_APPLY_LOG = '1518097965120491652'; 
+
+// ⚙️ [تعديل] حط هنا ID روم لوق تسجيل الدخول والخروج (الديوتي)
+const LOG_DUTY_CHANNEL = '1515788579199123506'; 
 
 // 🖼️ روابط الصور المنفصلة الثلاثة
 const URL_APPLY_PANEL_IMAGE = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
@@ -86,7 +92,7 @@ const EMS_ROLES = [
 // ==========================================================================================
 
 client.on('ready', () => {
-    console.log(`✅ البوت جاهز، ومفعل نظام الترحيب بالـ MD: ${client.user.tag}`);
+    console.log(`✅ البوت جاهز، ومفعل نظام الترحيب والديوتي: ${client.user.tag}`);
 });
 
 const activeActions = new Map();
@@ -139,6 +145,50 @@ client.on('messageCreate', async (message) => {
         return message.reply({ embeds: [pointsEmbed] });
     }
 
+    // أمر إنشاء لوحة تسجيل الدخول والخروج (الديوتي)
+    if (command === 'setup-duty') {
+        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ للادارة العليا فقط.');
+        
+        const embed = new EmbedBuilder()
+            .setTitle('⏱️ نظام تسجيل الدخول والخروج لقطاع الصحة ⏱️')
+            .setDescription('عزيزي الموظف، يرجى استخدام الأزرار أدناه لتسجيل بداية ونهاية نظام مناوبتك (Duty).\n\n🟢 **تسجيل دخول:** لبدء احتساب وقت العمل.\n🔴 **تسجيل خروج:** لإنهاء المناوبة وحفظ الساعات.')
+            .setColor('#2ecc71');
+
+        if (URL_APPLY_PANEL_IMAGE && URL_APPLY_PANEL_IMAGE.startsWith('http')) {
+            embed.setImage(URL_APPLY_PANEL_IMAGE);
+        }
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('duty_on_btn').setLabel('تسجيل دخول 🟢').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('duty_off_btn').setLabel('تسجيل خروج 🔴').setStyle(ButtonStyle.Danger)
+        );
+
+        await message.channel.send({ embeds: [embed], components: [row] });
+        await message.delete();
+    }
+
+    // أمر لمعاينة ساعات عمل موظف
+    if (command === 'duty-check') {
+        const targetId = args[0] || message.author.id;
+        const targetMember = await message.guild.members.fetch(targetId).catch(() => null);
+        
+        if (!targetMember) return message.reply('❌ تعذر العثور على العضو.');
+        
+        const allData = getPointsData();
+        const totalMinutes = allData.duty_hours[targetId] || 0;
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+
+        const dutyEmbed = new EmbedBuilder()
+            .setTitle('⏱️ سجل ساعات العمل للموظف ⏱️')
+            .setDescription(`الموظف المستعلم عنه: ${targetMember}`)
+            .addFields({ name: '⏳ إجمالي الوقت المقضي في الخدمة:', value: `**${hours}** ساعة و **${minutes}** دقيقة` })
+            .setColor('#2ecc71')
+            .setTimestamp();
+
+        return message.reply({ embeds: [dutyEmbed] });
+    }
+
     if (command === 'setup-apply') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ للادارة العليا فقط.');
         
@@ -178,7 +228,7 @@ client.on('messageCreate', async (message) => {
         const row2 = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('admin_points_add').setLabel('إضافة نقاط ➕').setStyle(ButtonStyle.Secondary),
             new ButtonBuilder().setCustomId('admin_points_remove').setLabel('سحب نقاط ➖').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('admin_points_check').setLabel('استعلام عن نقاط 🔍').setStyle(ButtonStyle.Primary), 
+            new ButtonBuilder().setCustomId('admin_points_check').setLabel('ساعات ونقاط الموظف 🔍').setStyle(ButtonStyle.Primary), 
             new ButtonBuilder().setCustomId('admin_fire').setLabel('فصل موظف ❌').setStyle(ButtonStyle.Danger)
         );
 
@@ -188,6 +238,74 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+    
+    // ================= [ نظام الدخول والخروج - التفاعل مع الأزرار ] =================
+    if (interaction.isButton() && interaction.customId === 'duty_on_btn') {
+        if (activeDuty.has(interaction.user.id)) {
+            return interaction.reply({ content: '⚠️ أنت مسجل دخولك بالفعل بالخدمة مسبقاً!', ephemeral: true });
+        }
+
+        activeDuty.set(interaction.user.id, Date.now());
+        
+        const logChannel = interaction.guild.channels.cache.get(LOG_DUTY_CHANNEL);
+        if (logChannel) {
+            const loginEmbed = new EmbedBuilder()
+                .setTitle('🟢 تسجيل دخول موظف (On Duty)')
+                .addFields(
+                    { name: '🚑 الموظف:', value: `${interaction.user}`, inline: true },
+                    { name: '⏰ وقت الدخول:', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+                )
+                .setColor('#2ecc71')
+                .setTimestamp();
+            await logChannel.send({ embeds: [loginEmbed] });
+        }
+
+        return interaction.reply({ content: '🟢 تم تسجيل دخولك بنجاح! بالتوفيق في مناوبتك.', ephemeral: true });
+    }
+
+    if (interaction.isButton() && interaction.customId === 'duty_off_btn') {
+        if (!activeDuty.has(interaction.user.id)) {
+            return interaction.reply({ content: '⚠️ أنت لست مسجلاً في الخدمة حالياً ليتم تسجيل خروجك!', ephemeral: true });
+        }
+
+        const startTime = activeDuty.get(interaction.user.id);
+        const endTime = Date.now();
+        const diffMs = endTime - startTime;
+        const diffMins = Math.floor(diffMs / 60000); // تحويل الدقائق
+
+        activeDuty.delete(interaction.user.id);
+
+        // حفظ الساعات في ملف البيانات
+        const allData = getPointsData();
+        const previousMins = allData.duty_hours[interaction.user.id] || 0;
+        const totalMins = previousMins + diffMins;
+        allData.duty_hours[interaction.user.id] = totalMins;
+        savePointsData(allData);
+
+        const hoursDisplay = Math.floor(diffMins / 60);
+        const minutesDisplay = diffMins % 60;
+        
+        const totalHours = Math.floor(totalMins / 60);
+        const totalMinutes = totalMins % 60;
+
+        const logChannel = interaction.guild.channels.cache.get(LOG_DUTY_CHANNEL);
+        if (logChannel) {
+            const logoutEmbed = new EmbedBuilder()
+                .setTitle('🔴 تسجيل خروج موظف (Off Duty)')
+                .addFields(
+                    { name: '🚑 الموظف:', value: `${interaction.user}`, inline: true },
+                    { name: '⏰ مدة هذه المناوبة:', value: `**${hoursDisplay}** ساعة و **${minutesDisplay}** دقيقة`, inline: false },
+                    { name: '📊 إجمالي الساعات الكلية:', value: `**${totalHours}** ساعة و **${totalMinutes}** دقيقة`, inline: false }
+                )
+                .setColor('#e74c3c')
+                .setTimestamp();
+            await logChannel.send({ embeds: [logoutEmbed] });
+        }
+
+        return interaction.reply({ content: `🔴 تم تسجيل خروجك بنجاح. قضيت **${hoursDisplay}** ساعة و **${minutesDisplay}** دقيقة في الخدمة.`, ephemeral: true });
+    }
+    // =========================================================================
+
     if (interaction.isButton() && interaction.customId === 'ems_apply_btn') {
         const modal = new ModalBuilder().setCustomId('ems_apply_modal').setTitle('استمارة التقديم على الصحة');
         modal.addComponents(
@@ -284,7 +402,7 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (interaction.customId === 'admin_points_check') {
-            const modal = new ModalBuilder().setCustomId('modal_points_check').setTitle('🔍 استعلام سريع عن نقاط موظف');
+            const modal = new ModalBuilder().setCustomId('modal_points_check').setTitle('🔍 استعلام سريع عن ملف موظف');
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('target_id').setLabel("ادخل ID الموظف للمعاينة:").setStyle(TextInputStyle.Short).setRequired(true)));
             return await interaction.showModal(modal);
         }
@@ -311,13 +429,18 @@ client.on('interactionCreate', async (interaction) => {
         const allData = getPointsData();
         const userPoints = allData.points[targetId] || 0;
         const userWarns = allData.warnings[targetId] || 0;
+        const totalMinutes = allData.duty_hours[targetId] || 0;
+        
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
 
         const pointsEmbed = new EmbedBuilder()
             .setTitle('📊 تفاصيل سجل الموظف من لوحة التحكم 📊')
             .setDescription(`الموظف المستعلم عنه: ${targetMember}`)
             .addFields(
                 { name: '✨ إجمالي النقاط المسجلة حالياً:', value: `**${userPoints}** نقطة`, inline: true },
-                { name: '⚠️ عدد التحذيرات التراكمية:', value: `**${userWarns}** تحذير`, inline: true }
+                { name: '⚠️ عدد التحذيرات التراكمية:', value: `**${userWarns}** تحذير`, inline: true },
+                { name: '⏱️ إجمالي الساعات المقضية:', value: `**${hours}** ساعة و **${minutes}** دقيقة`, inline: false }
             )
             .setColor('#3498db')
             .setTimestamp();
