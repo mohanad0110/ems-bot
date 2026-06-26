@@ -27,7 +27,7 @@ const POINTS_FILE = './points.json';
 
 // دالة جلب البيانات المحدثة لدعم النقاط، التحذيرات، وساعات العمل
 function getPointsData() {
-    if (!fs.existsSync(POINTS_FILE)) fs.writeFileSync(POINTS_FILE, JSON.stringify({ points: {}, warnings: {}, duty_hours: {} }));
+    if (!fs.existsSync(POINTS_FILE)) fs.writeFileSync(POINTS_FILE, JSON.stringify({ points: {}, warnings: {}, duty_hours: {}, dispatch_duty_hours: {} }));
     let data;
     try {
         data = JSON.parse(fs.readFileSync(POINTS_FILE, 'utf-8'));
@@ -36,7 +36,8 @@ function getPointsData() {
     }
     if (!data.points) data.points = {};
     if (!data.warnings) data.warnings = {};
-    if (!data.duty_hours) data.duty_hours = {}; // حفظ الساعات الكلية بالدقائق
+    if (!data.duty_hours) data.duty_hours = {}; 
+    if (!data.dispatch_duty_hours) data.dispatch_duty_hours = {}; // حفظ ساعات الدسباتش بالدقائق
     return data;
 }
 
@@ -44,26 +45,23 @@ function savePointsData(data) {
     fs.writeFileSync(POINTS_FILE, JSON.stringify(data, null, 4));
 }
 
-// ماب مؤقت لحفظ وقت دخول الموظفين الحاليين (أون ديوتي)
+// مابات مؤقتة لحفظ وقت دخول الموظفين الحاليين (أون ديوتي)
 const activeDuty = new Map();
+const activeDispatchDuty = new Map(); // ماب مخصص لدخول وخروج الدسباتش
 
 // ================= [ 🚑 إعدادات الرتب ورومات اللوق بالـ ID 🚑 ] =================
-// 🆕 ⚠️ حط هنا IDs رتب التحذيرات حقت سيرفرك:
 const ROLE_WARN_1 = '1515788388110962768'; 
 const ROLE_WARN_2 = '1515788389671108649'; 
 const ROLE_WARN_3 = '1515788391449366648'; 
 
-// 🆕 حط ID روم الترحيب هنا
 const CHANNEL_WELCOME_LOG = '1515788540116467972'; 
 const CHANNEL_APPLY_LOG = '1518097965120491652'; 
+const LOG_DUTY_CHANNEL = '1515788579199123506'; // لوق ديوتي المسعفين العادي
 
-// ⚙️ [تعديل] حط هنا ID روم لوق تسجيل الدخول والخروج (الديوتي)
-const LOG_DUTY_CHANNEL = '1515788579199123506'; 
-
-// 🚨 [جديد] رومات نظام الدسباتش (يجب تعبئتها بـ IDs الرومات حقك) 🚨
-const DISPATCH_CONTROL_CHANNEL = '1519907806356967575';
-const ACTIVE_DISPATCH_CHANNEL = '1515788576426819724';
-const ARCHIVE_CHANNEL = '1519908274915250288';
+// 🚨 رومات نظام الدسباتش واللوق الخاص به (تعديل الـ IDs هنا حسب سيرفرك) 🚨
+const DISPATCH_CONTROL_CHANNEL = '1519907806356967575'; // الروم الموحدة (فيها أزرار الديوتي وفتح الاستبيان)
+const ACTIVE_DISPATCH_CHANNEL = '1515788576426819724';  // الروم اللي ينزل فيها التقرير النهائي المنسق بالـ Zones
+const LOG_DISPATCH_DUTY_CHANNEL = '1519908274915250288'; // روم لوق دخول وخروج دسباتش (تقدر تخليها نفس لوق الديوتي العادي أو تفصلها)
 
 // 🖼️ روابط الصور المنفصلة الثلاثة
 const URL_APPLY_PANEL_IMAGE = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
@@ -222,21 +220,21 @@ client.on('messageCreate', async (message) => {
         await message.delete();
     }
 
-    // ================= [ أمر نظام الدسباتش الجديد ] =================
+    // ================= [ أمر لوحة التحكم الموحدة للدسباتش ] =================
     if (command === 'setup-dispatch') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ للإدارة العليا فقط.');
         
         const embed = new EmbedBuilder()
-            .setTitle('🚑 مركز عمليات قطاع الصحة | EMS Dispatch')
-            .setDescription('من هنا يمكنك فتح بلاغ طوارئ جديد وتوجيهه للمسعفين في الخدمة.')
-            .setColor('#ff0000')
+            .setTitle('🚑 مركز عمليات قطاع الصحة | Medical Dispatch Panel')
+            .setDescription('مرحباً بك في لوحة تحكم نظام الدسباتش الموحدة.\nيرجى استخدام الأزرار أدناه لتسجيل فترتك الحالية، أو لرفع تقرير وتوزيع الـ Zones عند النهاية.\n\n🟢 **دخول فترة دسباتش:** لبدء احتساب وقت الشفت الخاص بك.\n🔴 **خروج فترة دسباتش:** لإنهاء شفتك وحفظ ساعات العمل.\n📝 **تقديم استبيان الدسباتش:** لرفع التقرير النهائي وتوزيع المناطق.')
+            .setColor('#e74c3c')
             .setTimestamp();
 
+        // وضع الأزرار كلها في صف واحد منظم[cite: 1]
         const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder()
-                .setCustomId('open_dispatch_modal')
-                .setLabel('🚨 فتح بلاغ جديد')
-                .setStyle(ButtonStyle.Danger)
+            new ButtonBuilder().setCustomId('dispatch_duty_on').setLabel('دخول فترة دسباتش 🟢').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('dispatch_duty_off').setLabel('خروج فترة دسباتش 🔴').setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId('open_dispatch_modal').setLabel('تقديم استبيان الدسباتش 📝').setStyle(ButtonStyle.Primary)
         );
 
         await message.channel.send({ embeds: [embed], components: [row] });
@@ -246,7 +244,7 @@ client.on('messageCreate', async (message) => {
 
 client.on('interactionCreate', async (interaction) => {
     
-    // ================= [ نظام الدخول والخروج - التفاعل مع الأزرار ] =================
+    // ================= [ نظام الدخول والخروج - المسعفين ] =================
     if (interaction.isButton() && interaction.customId === 'duty_on_btn') {
         if (activeDuty.has(interaction.user.id)) return interaction.reply({ content: '⚠️ أنت مسجل دخولك بالفعل بالخدمة مسبقاً!', ephemeral: true });
 
@@ -301,7 +299,67 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: `🔴 تم تسجيل خروجك بنجاح. قضيت **${hoursDisplay}** ساعة و **${minutesDisplay}** دقيقة في الخدمة.`, ephemeral: true });
     }
 
-    // ================= [ نظام التقديمات ] =================
+    // ================= [ 🟢 دخول وخروج الدسباتش - المضاف الجديد ] =================
+    if (interaction.isButton() && interaction.customId === 'dispatch_duty_on') {
+        if (activeDispatchDuty.has(interaction.user.id)) {
+            return interaction.reply({ content: '⚠️ أنت مسجل دخول بالفعل كمسؤول دسباتش في الخدمة حالياً!', ephemeral: true });
+        }
+
+        activeDispatchDuty.set(interaction.user.id, Date.now());
+        
+        const logChannel = interaction.guild.channels.cache.get(LOG_DISPATCH_DUTY_CHANNEL);
+        if (logChannel) {
+            const loginEmbed = new EmbedBuilder()
+                .setTitle('📢 [الدسباتش] بدء فترة عمل جديدة')
+                .setDescription(`قام موظف العمليات ${interaction.user} ببدء فترة السيطرة وتوزيع البلاغات الحين.`)
+                .addFields({ name: '⏰ وقت الدخول:', value: `<t:${Math.floor(Date.now() / 1000)}:F>` })
+                .setColor('#2ecc71')
+                .setTimestamp();
+            await logChannel.send({ embeds: [loginEmbed] });
+        }
+        return interaction.reply({ content: '🟢 تم تسجيل دخولك الموحد كمسؤول دسباتش بنجاح، فترتك بدأت الحين بالتوفيق!', ephemeral: true });
+    }
+
+    if (interaction.isButton() && interaction.customId === 'dispatch_duty_off') {
+        if (!activeDispatchDuty.has(interaction.user.id)) {
+            return interaction.reply({ content: '⚠️ أنت لست مسجلاً بـ ديوتي الدسباتش حالياً لتسجيل الخروج!', ephemeral: true });
+        }
+
+        const startTime = activeDispatchDuty.get(interaction.user.id);
+        const endTime = Date.now();
+        const diffMs = endTime - startTime;
+        const diffMins = Math.floor(diffMs / 60000); 
+
+        activeDispatchDuty.delete(interaction.user.id);
+
+        const allData = getPointsData();
+        const previousMins = allData.dispatch_duty_hours[interaction.user.id] || 0;
+        const totalMins = previousMins + diffMins;
+        allData.dispatch_duty_hours[interaction.user.id] = totalMins;
+        savePointsData(allData);
+
+        const hoursDisplay = Math.floor(diffMins / 60);
+        const minutesDisplay = diffMins % 60;
+        const totalHours = Math.floor(totalMins / 60);
+        const totalMinutes = totalMins % 60;
+
+        const logChannel = interaction.guild.channels.cache.get(LOG_DISPATCH_DUTY_CHANNEL);
+        if (logChannel) {
+            const logoutEmbed = new EmbedBuilder()
+                .setTitle('📢 [الدسباتش] إنهاء فترة عمل وحفظ الساعات')
+                .addFields(
+                    { name: '👤 مسؤول العمليات:', value: `${interaction.user}`, inline: true },
+                    { name: '⏰ مدة هذه الفترة:', value: `**${hoursDisplay}** ساعة و **${minutesDisplay}** دقيقة`, inline: false },
+                    { name: '📊 إجمالي ساعات الدسباتش الكلية:', value: `**${totalHours}** ساعة و **${totalMinutes}** دقيقة`, inline: false }
+                )
+                .setColor('#e74c3c')
+                .setTimestamp();
+            await logChannel.send({ embeds: [logoutEmbed] });
+        }
+        return interaction.reply({ content: `🔴 تم تسجيل خروجك بنجاح من نظام العمليات.\nقضيت بالفترة الحالية **${hoursDisplay}** ساعة و **${minutesDisplay}** دقيقة.\n💡 لا تنسى تضغط على زر **[تقديم استبيان الدسباتش]** لتوثيق توزيع الـ Zones وتنزيل التقرير!`, ephemeral: true });
+    }
+
+    // ================= [ نظام التتقديمات ] =================
     if (interaction.isButton() && interaction.customId === 'ems_apply_btn') {
         const modal = new ModalBuilder().setCustomId('ems_apply_modal').setTitle('استمارة التقديم على الصحة');
         modal.addComponents(
@@ -540,107 +598,56 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply({ content: `✅ تم تنفيذ الإجراء الإداري وتحديث قاعدة البيانات وتوثيقه باللوغ!`, ephemeral: true });
     }
 
-    // ================= [ 🚨 نظام الدسباتش المضاف 🚨 ] =================
-    // 1. الضغط على زر "فتح بلاغ جديد"
+    // ================= [ 🚨 نظام استبيان الدسباتش المحدث 🚨 ] =================
     if (interaction.isButton() && interaction.customId === 'open_dispatch_modal') {
-        const modal = new ModalBuilder().setCustomId('dispatch_form').setTitle('إنشاء بلاغ طوارئ جديد');
+        const modal = new ModalBuilder().setCustomId('dispatch_report_modal').setTitle('استبيان فترة الدسباتش');
         modal.addComponents(
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('patient_name').setLabel("اسم أو آيدي المصاب").setStyle(TextInputStyle.Short).setRequired(true)),
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('location').setLabel("الموقع بالتفصيل").setStyle(TextInputStyle.Short).setRequired(true)),
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('case_details').setLabel("نوع الحالة (إغماء، حادث، طلق ناري...)").setStyle(TextInputStyle.Paragraph).setRequired(true))
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('names_input').setLabel("الاسم | اسم الدسباتش | نائبه").setPlaceholder("اكتب الأسماء بالترتيب هنا...").setStyle(TextInputStyle.Short).setRequired(true)),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('manager_input').setLabel("اسم مسؤول الفترة").setStyle(TextInputStyle.Short).setRequired(true)),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('time_input').setLabel("التوقيت (من - إلى)").setPlaceholder("مثال: 4:00 عصراً إلى 8:00 مساءً").setStyle(TextInputStyle.Short).setRequired(true)),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('zones_input').setLabel("توزيع الـ Zones (1, 2, 3, 4)").setPlaceholder("Zone 1: فلان | Zone 2: فلان...").setStyle(TextInputStyle.Paragraph).setRequired(true)),
+            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('image_input').setLabel("رابط الصورة (إلزامي)").setPlaceholder("ضع هنا رابط الصورة المرفوعة بنهاية hxxp...").setStyle(TextInputStyle.Short).setRequired(true))
         );
         await interaction.showModal(modal);
     }
 
-    // 2. استقبال بيانات البلاغ وإرساله للروم النشط
-    if (interaction.isModalSubmit() && interaction.customId === 'dispatch_form') {
-        const patient = interaction.fields.getTextInputValue('patient_name');
-        const location = interaction.fields.getTextInputValue('location');
-        const caseDetails = interaction.fields.getTextInputValue('case_details');
+    if (interaction.isModalSubmit() && interaction.customId === 'dispatch_report_modal') {
+        const names = interaction.fields.getTextInputValue('names_input');
+        const manager = interaction.fields.getTextInputValue('manager_input');
+        const timeInfo = interaction.fields.getTextInputValue('time_input');
+        const zonesInfo = interaction.fields.getTextInputValue('zones_input');
+        const imageLink = interaction.fields.getTextInputValue('image_input');
 
         const activeChannel = interaction.guild.channels.cache.get(ACTIVE_DISPATCH_CHANNEL);
-        if (!activeChannel) return interaction.reply({ content: '❌ لم يتم العثور على روم البلاغات الحالية (تأكد من الآيدي بالكود).', ephemeral: true });
+        if (!activeChannel) return interaction.reply({ content: '❌ تعذر العثور على الروم المخصصة لإرسال الاستبيانات الحالية.', ephemeral: true });
 
-        const embed = new EmbedBuilder()
-            .setTitle('🚨 بلاغ طوارئ جديد (جاري الانتظار...)')
-            .setColor('#e67e22')
-            .addFields(
-                { name: '👤 المصاب:', value: patient, inline: true },
-                { name: '📍 الموقع:', value: location, inline: true },
-                { name: '📝 تفاصيل الحالة:', value: caseDetails },
-                { name: '📞 الدسباتش المسؤول:', value: `<@${interaction.user.id}>` }
-            )
-            .setTimestamp();
+        if (!imageLink.startsWith('http://') && !imageLink.startsWith('https://')) {
+            return interaction.reply({ content: '❌ رابط الصورة غير صحيح، يجب أن يبدأ بـ http أو https لكي يتم اعتماده.', ephemeral: true });
+        }
 
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('claim_dispatch').setLabel('🚑 استلام البلاغ').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('cancel_dispatch').setLabel('❌ إلغاء البلاغ').setStyle(ButtonStyle.Secondary)
-        );
+        const formattedMessage = `**:SAMS: | SAN ANDREAS MEDICAL SERVICES .**
+-# :megaphone: Medical Dispatch .
 
-        await activeChannel.send({ content: '@here 🚨 بلاغ جديد!', embeds: [embed], components: [row] });
-        await interaction.reply({ content: '✅ تم توجيه البلاغ بنجاح للعمليات.', ephemeral: true });
-    }
+  الأسـم  : ${names}
 
-    // 3. استلام البلاغ من المسعف
-    if (interaction.isButton() && interaction.customId === 'claim_dispatch') {
-        const embed = EmbedBuilder.from(interaction.message.embeds[0])
-            .setTitle('⏳ بلاغ قيد التعامل...')
-            .setColor('#3498db')
-            .addFields({ name: '👨‍⚕️ المسعف المستلم:', value: `<@${interaction.user.id}>` });
+  أسـم الـديسباتـش  : ${interaction.user.username}
 
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('finish_dispatch_modal').setLabel('✅ إنهاء البلاغ ورفع تقرير').setStyle(ButtonStyle.Primary)
-        );
+  أسـم نـائب الـديسباتـش  : متاح في الحقل الأول إذا سجل
 
-        await interaction.update({ embeds: [embed], components: [row] });
-    }
+ أسـم مـسؤول الـفـترة  : ${manager}
 
-    // 4. إلغاء البلاغ من الدسباتش
-    if (interaction.isButton() && interaction.customId === 'cancel_dispatch') {
-        await interaction.message.delete();
-    }
+  التـوقيـت  : ${timeInfo}
 
-    // 5. زر إنهاء البلاغ وكتابة التقرير
-    if (interaction.isButton() && interaction.customId === 'finish_dispatch_modal') {
-        const modal = new ModalBuilder().setCustomId('report_form').setTitle('تقرير الحالة الطبية');
-        modal.addComponents(
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('treatment').setLabel("الإجراء الطبي المتخذ").setStyle(TextInputStyle.Paragraph).setRequired(true)),
-            new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('patient_status').setLabel("حالة المريض النهائية (تم نقله، شفي..)").setStyle(TextInputStyle.Short).setRequired(true))
-        );
-        await interaction.showModal(modal);
-    }
+-# **ـــــــــــــــــــــــــــ**
+${zonesInfo}
 
-    // 6. استقبال التقرير النهائي، حذفه من الروم النشط، وأرشفته
-    if (interaction.isModalSubmit() && interaction.customId === 'report_form') {
-        const treatment = interaction.fields.getTextInputValue('treatment');
-        const patientStatus = interaction.fields.getTextInputValue('patient_status');
-        const archiveChannel = interaction.guild.channels.cache.get(ARCHIVE_CHANNEL);
-        
-        const originalEmbed = interaction.message.embeds[0];
-        const patient = originalEmbed.fields[0].value;
-        const location = originalEmbed.fields[1].value;
-        const caseDetails = originalEmbed.fields[2].value;
-        const dispatcher = originalEmbed.fields[3].value;
-        const medic = originalEmbed.fields[4].value;
+-# إرفاق صورة إلزامي، ولن يتم اعتماد الاستبيان بدونها
+-# \`[ + ]\` <@&1499850630544621639> .
 
-        const reportEmbed = new EmbedBuilder()
-            .setTitle('🗂️ تقرير طبي مؤرشف')
-            .setColor('#2ecc71')
-            .addFields(
-                { name: '👤 المصاب:', value: patient, inline: true },
-                { name: '📍 الموقع:', value: location, inline: true },
-                { name: '📝 نوع البلاغ:', value: caseDetails },
-                { name: '📞 الدسباتش:', value: dispatcher, inline: true },
-                { name: '👨‍⚕️ المسعف المسؤول:', value: medic, inline: true },
-                { name: '💊 العلاج المقدم:', value: treatment },
-                { name: '📊 الحالة النهائية:', value: patientStatus }
-            )
-            .setTimestamp();
+${imageLink}`;
 
-        if (archiveChannel) await archiveChannel.send({ embeds: [reportEmbed] });
-
-        await interaction.message.delete();
-        await interaction.reply({ content: '✅ تم إنهاء البلاغ وأرشفة التقرير الطبية بنجاح.', ephemeral: true });
+        await activeChannel.send({ content: formattedMessage });
+        await interaction.reply({ content: '✅ تم إرسال استبيان الفترة بنظام التنسيق المطلق والمطلوب بنجاح!', ephemeral: true });
     }
 });
 
