@@ -58,15 +58,16 @@ const CHANNEL_WELCOME_LOG = '1515788540116467972';
 const CHANNEL_APPLY_LOG = '1518097965120491652'; 
 const LOG_DUTY_CHANNEL = '1515788579199123506'; 
 
-// 🚨 رومات نظام الدسباتش واللوق الخاص به (تعديل الـ IDs هنا حسب سيرفرك) 🚨
-const DISPATCH_CONTROL_CHANNEL = '1519907806356967575'; // الروم الموحدة (فيها أزرار الديوتي وفتح الاستبيان)[cite: 1]
-const ACTIVE_DISPATCH_CHANNEL = '1515788576426819724';  // الروم اللي ينزل فيها التقرير النهائي المنسق بالـ Zones[cite: 1]
-const LOG_DISPATCH_DUTY_CHANNEL = '1519908274915250288'; // روم لوق دخول وخروج دسباتش[cite: 1]
+// 🚨 رومات نظام الدسباتش واللوق الخاص به 🚨
+const DISPATCH_CONTROL_CHANNEL = '1519907806356967575'; 
+const ACTIVE_DISPATCH_CHANNEL = '1515788576426819724';  
+const LOG_DISPATCH_DUTY_CHANNEL = '1519908274915250288'; 
 
-// 🖼️ روابط الصور المنفصلة الثلاثة
+// 🖼️ روابط الصور المنفصلة الثلاثة وصورة غلاف اللوحة
 const URL_APPLY_PANEL_IMAGE = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
 const URL_TICKET_IMAGE      = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
 const URL_ADMIN_PANEL_IMAGE = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
+const URL_DUTY_PANEL_IMAGE  = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; // يمكنك استبدالها بصورة Last State الظاهرة بالصورة
 
 // 📂 رومات اللوغات المنفصلة بالكامل:
 const LOG_APPLY_DECISION = '1515788660933525686'; 
@@ -91,6 +92,35 @@ const EMS_ROLES = [
     { label: '⚕️ EMT', value: '1515788324873306255' },
     { label: '🔰 Student', value: '1515788325884006464' }
 ];
+
+// دالة صياغة الإمبيد الخاص بالتحضير اليومي بناءً على المتواجدين حالياً بالخدمة[cite: 1]
+function createDutyEmbed(guild) {
+    const today = new Date();
+    const dateString = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`;
+    
+    let activeStaffList = "";
+    let count = 1;
+    
+    activeDuty.forEach((startTime, userId) => {
+        activeStaffList += `**${count}.** <@${userId}> | <t:${Math.floor(startTime / 1000)}:t>\n`;
+        count++;
+    });
+
+    if (activeStaffList === "") {
+        activeStaffList = "*لا يوجد موظفين في الخدمة حالياً.*";
+    }
+
+    const embed = new EmbedBuilder()
+        .setTitle('سجل التحضير اليومي')
+        .setDescription(`### **ملخص التحضير**\n**التاريخ:** \`${dateString}\`\n**عدد المتواجدين:** \`${activeDuty.size}\`\n\n---\n### **قائمة المتواجدين**\n${activeStaffList}`)
+        .setColor('#1c1c1c')
+        .setFooter({ text: 'نظام التحضير اليومي' });
+
+    if (URL_DUTY_PANEL_IMAGE && URL_DUTY_PANEL_IMAGE.startsWith('http')) {
+        embed.setImage(URL_DUTY_PANEL_IMAGE);
+    }
+    return embed;
+}
 // ==========================================================================================
 
 client.on('ready', () => {
@@ -99,7 +129,6 @@ client.on('ready', () => {
 
 const activeActions = new Map();
 
-// حدث الترحيب التلقائي المصحح بالكامل
 client.on('guildMemberAdd', async (member) => {
     const welcomeChannel = member.guild.channels.cache.get(CHANNEL_WELCOME_LOG);
     if (!welcomeChannel) return;
@@ -128,7 +157,6 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // ================= [ أوامر النظام السابقة ] =================
     if (command === 'points') {
         const targetId = args[0] || message.author.id;
         const targetMember = await message.guild.members.fetch(targetId).catch(() => null);
@@ -147,18 +175,17 @@ client.on('messageCreate', async (message) => {
         return message.reply({ embeds: [pointsEmbed] });
     }
 
+    // أمر الـ Setup المحدث بالكامل ليطابق الصورة المرسلة[cite: 1]
     if (command === 'setup-duty') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ للادارة العليا فقط.');
-        const embed = new EmbedBuilder()
-            .setTitle('⏱️ نظام تسجيل الدخول والخروج لقطاع الصحة ⏱️')
-            .setDescription('عزيزي الموظف، يرجى استخدام الأزرار أدناه لتسجيل بداية ونهاية نظام مناوبتك (Duty).\n\n🟢 **تسجيل دخول:** لبدء احتساب وقت العمل.\n🔴 **تسجيل خروج:** لإنهاء المناوبة وحفظ الساعات.')
-            .setColor('#2ecc71');
-        if (URL_APPLY_PANEL_IMAGE && URL_APPLY_PANEL_IMAGE.startsWith('http')) embed.setImage(URL_APPLY_PANEL_IMAGE);
-
+        
+        const embed = createDutyEmbed(message.guild);
         const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('duty_on_btn').setLabel('تسجيل دخول 🟢').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('duty_off_btn').setLabel('تسجيل خروج 🔴').setStyle(ButtonStyle.Danger)
+            new ButtonBuilder().setCustomId('duty_on_btn').setLabel('دخول').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('duty_off_btn').setLabel('خروج').setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId('admin_panel_shortcut').setLabel('Affairs Options').setStyle(ButtonStyle.Primary)
         );
+
         await message.channel.send({ embeds: [embed], components: [row] });
         await message.delete();
     }
@@ -186,7 +213,7 @@ client.on('messageCreate', async (message) => {
     if (command === 'setup-apply') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ للادارة العليا فقط.');
         const embed = new EmbedBuilder()
-            .setTitle('🚑 التقديم على وزارة الصحة (EMS) 🚑')
+            .setTitle('🚑 التتقديم على وزارة الصحة (EMS) 🚑')
             .setDescription('مرحباً بك في بوابة التقديم للعمل في الخدمات الطبية الطارئة.\nاضغط على الزر أدناه لتعبئة الاستمارة.')
             .setColor('#e74c3c');
         if (URL_APPLY_PANEL_IMAGE && URL_APPLY_PANEL_IMAGE.startsWith('http')) embed.setImage(URL_APPLY_PANEL_IMAGE);
@@ -220,7 +247,6 @@ client.on('messageCreate', async (message) => {
         await message.delete();
     }
 
-    // ================= [ أمر لوحة التحكم الموحدة للدسباتش ] =================
     if (command === 'setup-dispatch') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ للإدارة العليا فقط.');
         
@@ -243,11 +269,16 @@ client.on('messageCreate', async (message) => {
 
 client.on('interactionCreate', async (interaction) => {
     
-    // ================= [ نظام الدخول والخروج - المسعفين ] =================
+    // ================= [ نظام الدخول والخروج - تحديث تفاعلي ] =================
     if (interaction.isButton() && interaction.customId === 'duty_on_btn') {
         if (activeDuty.has(interaction.user.id)) return interaction.reply({ content: '⚠️ أنت مسجل دخولك بالفعل بالخدمة مسبقاً!', ephemeral: true });
 
         activeDuty.set(interaction.user.id, Date.now());
+        
+        // تحديث رسالة الإمبيد الأساسية فوراً لتظهر اسم الشخص الجديد المُنضم للقائمة[cite: 1]
+        const updatedEmbed = createDutyEmbed(interaction.guild);
+        await interaction.message.edit({ embeds: [updatedEmbed] });
+
         const logChannel = interaction.guild.channels.cache.get(LOG_DUTY_CHANNEL);
         if (logChannel) {
             const loginEmbed = new EmbedBuilder()
@@ -271,6 +302,10 @@ client.on('interactionCreate', async (interaction) => {
         const diffMins = Math.floor(diffMs / 60000); 
 
         activeDuty.delete(interaction.user.id);
+
+        // تحديث الإمبيد لحذف الشخص من القائمة أمام الجميع[cite: 1]
+        const updatedEmbed = createDutyEmbed(interaction.guild);
+        await interaction.message.edit({ embeds: [updatedEmbed] });
 
         const allData = getPointsData();
         const previousMins = allData.duty_hours[interaction.user.id] || 0;
@@ -296,6 +331,31 @@ client.on('interactionCreate', async (interaction) => {
             await logChannel.send({ embeds: [logoutEmbed] });
         }
         return interaction.reply({ content: `🔴 تم تسجيل خروجك بنجاح. قضيت **${hoursDisplay}** ساعة و **${minutesDisplay}** دقيقة في الخدمة.`, ephemeral: true });
+    }
+
+    // اختصار شؤون الموظفين (Affairs Options)[cite: 1]
+    if (interaction.isButton() && interaction.customId === 'admin_panel_shortcut') {
+        if (!interaction.member.permissions.has(PermissionFlagsBits.ManageRoles)) {
+            return interaction.reply({ content: '❌ هذا الزر مخصص لإدارة شؤون الموظفين فقط المسؤولة عن قطاع الصحة.', ephemeral: true });
+        }
+        
+        const embed = new EmbedBuilder()
+            .setTitle('⚙️ لوحة تحكم إدارة قطاع الصحة السريعة ⚙️')
+            .setDescription('اختر الإجراء الإداري المطلوب لتنفيذه وتوثيقه فوراً:')
+            .setColor('#2c3e50');
+
+        const row1 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('admin_promote').setLabel('ترقية موظف 📈').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId('admin_demote').setLabel('كسر رتبة 📉').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('admin_warn').setLabel('تحذير موظف ⚠️').setStyle(ButtonStyle.Danger)
+        );
+        const row2 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('admin_points_add').setLabel('إضافة نقاط ➕').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('admin_points_remove').setLabel('سحب نقاط ➖').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('admin_points_check').setLabel('ساعات ونقاط الموظف 🔍').setStyle(ButtonStyle.Primary)
+        );
+
+        await interaction.reply({ embeds: [embed], components: [row1, row2], ephemeral: true });
     }
 
     // ================= [ 🟢 دخول وخروج الدسباتش ] =================
@@ -599,7 +659,6 @@ client.on('interactionCreate', async (interaction) => {
 
     // ================= [ 🚨 نظام استبيان الدسباتش المطور ] =================
     if (interaction.isButton() && interaction.customId === 'open_dispatch_modal') {
-        // [شرط جديد]: منع الموظف من فتح الاستبيان إذا لم يسجل دخول (Duty On)
         if (!activeDispatchDuty.has(interaction.user.id)) {
             return interaction.reply({ content: '❌ يجب عليك تسجيل دخولك فترة الدسباتش أولاً قبل تقديم الاستبيان!', ephemeral: true });
         }
@@ -625,7 +684,6 @@ client.on('interactionCreate', async (interaction) => {
         const activeChannel = interaction.guild.channels.cache.get(ACTIVE_DISPATCH_CHANNEL);
         if (!activeChannel) return interaction.reply({ content: '❌ تعذر العثور على الروم المخصصة لإرسال الاستبيانات الحالية.', ephemeral: true });
 
-        // صياغة النص العادي المتوافق تماماً مع طلبك مع فصل حقل الدسباتش ونائبه
         const formattedMessage = `**:SAMS: | SAN ANDREAS MEDICAL SERVICES .**
 -# :megaphone: Medical Dispatch .
 
@@ -643,19 +701,14 @@ ${zonesInfo}
 -# إرفاق صورة إلزامي، ولن يتم اعتماد الاستبيان بدونها داخل الثريد أدناه
 -# \`[ + ]\` <@&1499850630544621639> .`;
 
-        // إرسال التقرير في شات الدسباتش
         const sentMessage = await activeChannel.send({ content: formattedMessage });
 
-        // [تعديل جديد]: فتح ثريد تلقائي تحت التقرير مباشرة لرفع الصورة
         try {
-            const thread = await sentMessage.startThread({
+            await sentMessage.startThread({
                 name: `📸 صـورة الـفـتـرة - ${dispatchName}`,
-                autoArchiveDuration: 60, // أرشفة بعد ساعة من الخمول
+                autoArchiveDuration: 60,
                 reason: 'ثريد مخصص لإرفاق صورة إثبات العمل للفترة الطبية'
             });
-
-            // منشن للموظف داخل الثريد عشان ينتبه ويرفع الصورة
-            await thread.send({ content: `👋 ومرحباً <@${interaction.user.id}>، يرجى إرفاق صورة إثبات الفترة والـ Zones هنا داخل هذا الثريد لإعتماد الاستبيان بنجاح! 📸` });
         } catch (error) {
             console.error('حدث خطأ أثناء فتح الثريد:', error);
         }
