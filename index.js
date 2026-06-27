@@ -25,9 +25,9 @@ const client = new Client({
 const PREFIX = '!';
 const POINTS_FILE = './points.json';
 
-// دالة جلب البيانات المحدثة لدعم النقاط، التحذيرات، وساعات العمل
+// دالة جلب البيانات المحدثة لدعم النقاط، التحذيرات، وساعات العمل، والمناطق الديناميكية
 function getPointsData() {
-    if (!fs.existsSync(POINTS_FILE)) fs.writeFileSync(POINTS_FILE, JSON.stringify({ points: {}, warnings: {}, duty_hours: {}, dispatch_duty_hours: {} }));
+    if (!fs.existsSync(POINTS_FILE)) fs.writeFileSync(POINTS_FILE, JSON.stringify({ points: {}, warnings: {}, duty_hours: {}, dispatch_duty_hours: {}, custom_zones: [] }));
     let data;
     try {
         data = JSON.parse(fs.readFileSync(POINTS_FILE, 'utf-8'));
@@ -38,6 +38,7 @@ function getPointsData() {
     if (!data.warnings) data.warnings = {};
     if (!data.duty_hours) data.duty_hours = {}; 
     if (!data.dispatch_duty_hours) data.dispatch_duty_hours = {}; 
+    if (!data.custom_zones) data.custom_zones = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"]; // المناطق الافتراضية الأساسية
     return data;
 }
 
@@ -263,6 +264,38 @@ client.on('messageCreate', async (message) => {
         await message.channel.send({ embeds: [embed], components: [row] });
         await message.delete();
     }
+
+    // أمر إضافة منطقة جديدة للبنل بدون تعديل الكود
+    if (command === 'add-zone') {
+        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ للادارة العليا فقط.');
+        const zoneName = args.join(' ');
+        if (!zoneName) return message.reply('❌ يرجى كتابة اسم المنطقة، مثال: `!add-zone Zone 5` أو `!add-zone مستشفى المدينة`');
+
+        const allData = getPointsData();
+        if (allData.custom_zones.includes(zoneName)) return message.reply('⚠️ هذه المنطقة موجودة بالفعل في اللوحة!');
+        
+        if (allData.custom_zones.length >= 5) {
+            return message.reply('⚠️ الحد الأقصى للمناطق في الرسالة الواحدة هو 5 مناطق بسبب قيود ديسكورد الصارمة.');
+        }
+
+        allData.custom_zones.push(zoneName);
+        savePointsData(allData);
+        return message.reply(`✅ تم إضافة المنطقة الجديدة **[ ${zoneName} ]** بنجاح للوحة الدسباتش!`);
+    }
+
+    // أمر حذف منطقة من اللوحة
+    if (command === 'remove-zone') {
+        if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ للادارة العليا فقط.');
+        const zoneName = args.join(' ');
+        if (!zoneName) return message.reply('❌ يرجى كتابة اسم المنطقة لحذفها، مثال: `!remove-zone Zone 5`');
+
+        const allData = getPointsData();
+        if (!allData.custom_zones.includes(zoneName)) return message.reply('❌ هذه المنطقة غير موجودة بالأساس في اللوحة.');
+
+        allData.custom_zones = allData.custom_zones.filter(z => z !== zoneName);
+        savePointsData(allData);
+        return message.reply(`🗑️ تم حذف المنطقة **[ ${zoneName} ]** من لوحة الدسباتش بنجاح.`);
+    }
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -373,7 +406,7 @@ client.on('interactionCreate', async (interaction) => {
         return interaction.reply({ content: `🔴 تم إنهاء فترة الدسباتش وحفظ الوقت بنجاح.`, ephemeral: true });
     }
 
-    // ================= [ نظام استبيان الدسباتش المطور بالقوائم المنسدلة ] =================
+    // ================= [ نظام استبيان الدسباتش المطور بالقوائم المنسدلة الديناميكية ] =================
     if (interaction.isButton() && interaction.customId === 'open_dispatch_modal') {
         if (!activeDispatchDuty.has(interaction.user.id)) {
             return interaction.reply({ content: '❌ يجب عليك تسجيل دخولك فترة الدسباتش أولاً قبل توزيع المناطق!', ephemeral: true });
@@ -388,11 +421,7 @@ client.on('interactionCreate', async (interaction) => {
         for (const staffId of currentStaffIds) {
             const member = await interaction.guild.members.fetch(staffId).catch(() => null);
             if (member) {
-                staffOptions.push({
-                    label: member.displayName || member.user.username,
-                    value: staffId,
-                    description: `الـ ID: ${staffId}`
-                });
+                staffOptions.push({ label: member.displayName || member.user.username, value: staffId, description: `الـ ID: ${staffId}` });
             }
         }
 
@@ -402,72 +431,87 @@ client.on('interactionCreate', async (interaction) => {
             description: 'إبقاء المنطقة شاغرة مؤقتاً'
         });
 
-        const setupEmbed = new EmbedBuilder()
-            .setTitle('🗺️ لوحة توزيع المناطق الطبية | Zones Distribution')
-            .setDescription('الرجاء اختيار الموظف المناسب لكل منطقة من القوائم المنسدلة أدناه:\n\n*ملاحظة: سيتم إرسال التقرير تلقائياً بعد تحديد آخر منطقة (Zone 4).*')
-            .setColor('#3498db')
-            .setTimestamp();
+        const allData = getPointsData();
+        const currentZones = allData.custom_zones;
 
-        const rowZone1 = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('dispatch_select_zone1').setPlaceholder('اختر موظف المنطقة الأولى (Zone 1)...').addOptions(staffOptions));
-        const rowZone2 = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('dispatch_select_zone2').setPlaceholder('اختر موظف المنطقة الثانية (Zone 2)...').addOptions(staffOptions));
-        const rowZone3 = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('dispatch_select_zone3').setPlaceholder('اختر موظف المنطقة الثالثة (Zone 3)...').addOptions(staffOptions));
-        const rowZone4 = new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId('dispatch_select_zone4').setPlaceholder('اختر موظف المنطقة الرابعة (Zone 4)...').addOptions(staffOptions));
+        if (currentZones.length === 0) {
+            return interaction.reply({ content: '⚠️ اللوحة فارغة، يرجى من الإدارة إضافة مناطق أولاً باستخدام أمر `!add-zone`', ephemeral: true });
+        }
+
+        const setupEmbed = new EmbedBuilder()
+            .setTitle('🗺️ لوحة توزيع المناطق الطبية الديناميكية')
+            .setDescription(`قم بتحديد الموظف لكل منطقة من القوائم أدناه.\n\n*عدد المناطق الحالية المطلوب توزيعها:* **${currentZones.length}**`)
+            .setColor('#3498db').setTimestamp();
+
+        const rows = [];
+        const initialSessionZones = {};
+
+        currentZones.forEach((zoneName, index) => {
+            initialSessionZones[`zone_${index}`] = null; 
+            rows.push(
+                new ActionRowBuilder().addComponents(
+                    new StringSelectMenuBuilder()
+                        .setCustomId(`dispatch_dyn_zone_${index}`) 
+                        .setPlaceholder(`اختر موظف لـ ( ${zoneName} )...`)
+                        .addOptions(staffOptions)
+                )
+            );
+        });
 
         if (!client.dispatchSessions) client.dispatchSessions = new Map();
-        client.dispatchSessions.set(interaction.user.id, { zone1: null, zone2: null, zone3: null, zone4: null });
+        client.dispatchSessions.set(interaction.user.id, { 
+            selections: initialSessionZones, 
+            zonesNames: currentZones 
+        });
 
-        await interaction.reply({ embeds: [setupEmbed], components: [rowZone1, rowZone2, rowZone3, rowZone4], ephemeral: true });
+        await interaction.reply({ embeds: [setupEmbed], components: rows, ephemeral: true });
     }
 
-    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('dispatch_select_zone')) {
+    if (interaction.isStringSelectMenu() && interaction.customId.startsWith('dispatch_dyn_zone_')) {
         if (!client.dispatchSessions) client.dispatchSessions = new Map();
         const session = client.dispatchSessions.get(interaction.user.id);
 
-        if (!session) {
-            return interaction.reply({ content: '❌ انتهت الجلسة الأمنية، يرجى الضغط على زر الاستبيان مجدداً.', ephemeral: true });
-        }
+        if (!session) return interaction.reply({ content: '❌ انتهت الجلسة الأمنية، يرجى إعادة فتح اللوحة.', ephemeral: true });
 
         const selectedValue = interaction.values[0];
-        const zoneNumber = interaction.customId.replace('dispatch_select_zone', ''); 
+        const zoneIndex = interaction.customId.replace('dispatch_dyn_zone_', ''); 
         
-        session[`zone${zoneNumber}`] = selectedValue === 'empty_zone' ? '❌ غـيـر مـتـوفـر' : `<@${selectedValue}>`;
+        session.selections[`zone_${zoneIndex}`] = selectedValue === 'empty_zone' ? '❌ غـيـر مـتـوفـر' : `<@${selectedValue}>`;
         client.dispatchSessions.set(interaction.user.id, session);
 
-        if (session.zone1 && session.zone2 && session.zone3 && session.zone4) {
+        const totalRequired = session.zonesNames.length;
+        const totalFilled = Object.values(session.selections).filter(val => val !== null).length;
+
+        if (totalFilled === totalRequired) {
             const activeChannel = interaction.guild.channels.cache.get(ACTIVE_DISPATCH_CHANNEL);
-            if (!activeChannel) return interaction.reply({ content: '❌ تعذر العثور على روم إرسال استبيانات الدسباتش.', ephemeral: true });
+            if (!activeChannel) return interaction.reply({ content: '❌ تعذر العثور على روم إرسال التقرير.', ephemeral: true });
+
+            let zonesReportText = "";
+            session.zonesNames.forEach((name, index) => {
+                zonesReportText += `🗺️ **${name} :** ${session.selections[`zone_${index}`]}\n`;
+            });
 
             const formattedMessage = `**:SAMS: | SAN ANDREAS MEDICAL SERVICES .**
--# :megaphone: Medical Dispatch Report .
+-# :megaphone: Dynamic Medical Dispatch Report .
 
   أسـم الـديسباتـش  : ${interaction.member}
   توقيت التوزيع  : <t:${Math.floor(Date.now() / 1000)}:t>
 
 -# **ــــــــــــــــ توزيع المناطق الطبية ــــــــــــــــ**
-🗺️ **Zone 1 :** ${session.zone1}
-🗺️ **Zone 2 :** ${session.zone2}
-🗺️ **Zone 3 :** ${session.zone3}
-🗺️ **Zone 4 :** ${session.zone4}
-
+${zonesReportText}
 -# إرفاق صورة إلزامي، ولن يتم اعتماد الاستبيان بدونها داخل الثريد أدناه
 -# \`[ + ]\` <@&1499850630544621639> .`;
 
             const sentMessage = await activeChannel.send({ content: formattedMessage });
 
             try {
-                await sentMessage.startThread({
-                    name: `📸 صورة الفترة - ${interaction.user.username}`,
-                    autoArchiveDuration: 60,
-                    reason: 'ثريد مخصص لإرفاق صورة إثبات العمل للفترة الطبية'
-                });
-            } catch (error) {
-                console.error('حدث خطأ أثناء فتح الثريد:', error);
-            }
+                await sentMessage.startThread({ name: `📸 صورة الفترة - ${interaction.user.username}`, autoArchiveDuration: 60 });
+            } catch (error) { console.error(error); }
 
             client.dispatchSessions.delete(interaction.user.id);
-            return await interaction.update({ content: '✅ تم جمع توزيع المناطق وإرسال تقرير الدسباتش بنجاح، وتم فتح ثريد الصور!', embeds: [], components: [], ephemeral: true });
+            return await interaction.update({ content: '✅ تم توزيع جميع المناطق الحالية وإرسال تقريرك بنجاح وفُتح ثريد الصور!', embeds: [], components: [], ephemeral: true });
         } else {
-            return await interaction.reply({ content: `📥 تم تسجيل الموظف للمنطقة [Zone ${zoneNumber}] بنجاح، يرجى إكمال باقي المناطق.`, ephemeral: true }).catch(() => null);
+            return await interaction.reply({ content: `📥 تم تسجيل اختيارك للمنطقة بنجاح، يرجى إكمال باقي القوائم المعروضة.`, ephemeral: true }).catch(() => null);
         }
     }
 
