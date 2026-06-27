@@ -35,7 +35,7 @@ function getPointsData() {
     if (!data.duty_hours) data.duty_hours = {}; 
     if (!data.dispatch_duty_hours) data.dispatch_duty_hours = {}; 
     if (!data.custom_zones) data.custom_zones = ["Zone 1", "Zone 2", "Zone 3", "Zone 4"];
-    if (!data.leave_users) data.leave_users = []; // لحفظ المتواجدين في إجازة رسمية حماية من الرادار
+    if (!data.leave_users) data.leave_users = []; 
     return data;
 }
 
@@ -50,9 +50,11 @@ const securityOtps = new Map();
 
 // ================= [ 🚑 إعدادات الرتب ورومات اللوق بالـ ID 🚑 ] =================
 const ROLE_WARN_1 = '1515788388110962768'; 
-const ROLE_WARN_2 = '1515788389671108649'; 
+const ROLE_WARN_2 = '1515788391671108649'; 
 const ROLE_WARN_3 = '1515788391449366648'; 
-const ROLE_LEAVE = '1520315094855061677'; // 📅 ضَع هنا ID رتبة "في إجازة / On Leave" لحماية الموظف وتلوينه
+
+// 📅 تنبيه: تأكد من وضع ID رتبة "في إجازة" مستقلة تماماً هنا ولا تكرر ID رتبة يمتلكها العضو مسبقاً!
+const ROLE_LEAVE = '1520315094855061677'; 
 
 const CHANNEL_WELCOME_LOG = '1515788540116467972'; 
 const CHANNEL_APPLY_LOG = '1518097965120491652'; 
@@ -65,8 +67,8 @@ const LOG_DISPATCH_DUTY_CHANNEL = '1519908274915250288';
 const CHANNEL_QUESTIONS = '1515788550329597984'; 
 const CHANNEL_ADMIN_ANSWERS = '1515788520378204263'; 
 
-const CHANNEL_ADMIN_REPORT_INPUT = '1515788514942517371'; 
-const CHANNEL_PUBLIC_REPORT_OUTPUT = '1515788559322190067'; 
+const CHANNEL_ADMIN_REPORT_INPUT = '1519907806356967575'; 
+const CHANNEL_PUBLIC_REPORT_OUTPUT = '1515788540116467972'; 
 
 const URL_APPLY_PANEL_IMAGE = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
 const URL_ADMIN_PANEL_IMAGE = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
@@ -178,11 +180,10 @@ client.on('ready', () => {
         }
     }, 1000 * 60 * 60 * 24);
 
-    // رادار الصوت (محدث لتخطي الموظفين الذين في إجازة رسمية معتمدة)
+    // رادار الصوت
     setInterval(() => {
         const allData = getPointsData();
         activeDuty.forEach(async (data, userId) => {
-            // إذا كان الموظف في قائمة الإجازات، يتخطاه الرادار حماية له
             if (allData.leave_users.includes(userId)) return;
 
             const guild = client.guilds.cache.first(); if (!guild) return;
@@ -263,7 +264,7 @@ client.on('messageCreate', async (message) => {
         for (let i = 0; i < sortedPoints.length; i++) {
             leaderboardText += `${medals[i]}: <@${sortedPoints[i][0]}> \n✨ رصيد النقاط: **${sortedPoints[i][1]}** نقطة مسجلة.\n\n`;
         }
-        const lbEmbed = new EmbedBuilder().setTitle('🏆 لوحة الشرف الأسبوعية لقطاع الصحة 🏆').setDescription(leaderboardText).setColor('#f1c40f').setThumbnail('https://i.imgur.com/E87C8b9.png').setTimestamp();
+        const lbEmbed = new EmbedBuilder().setTitle('🏆 لوحة الشرف الأسبوعية لقطاع الصحة 🏆').setDescription(leaderboardText).setColor('#f1c40f').setTimestamp();
         return message.reply({ embeds: [lbEmbed] });
     }
 
@@ -293,7 +294,7 @@ client.on('messageCreate', async (message) => {
     }
     if (command === 'setup-apply') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ للإدارة فقط.');
-        const embed = new EmbedBuilder().setTitle('🚑 التتقديم على وزارة الصحة (EMS) 🚑').setDescription('اضغط على الزر أدناه لتعبئة استمارة الانضمام الإلكترونية بالكامل.').setColor('#e74c3c');
+        const embed = new EmbedBuilder().setTitle('🚑 التقديم على وزارة الصحة (EMS) 🚑').setDescription('اضغط على الزر أدناه لتعبئة استمارة الانضمام الإلكترونية بالكامل.').setColor('#e74c3c');
         if (URL_APPLY_PANEL_IMAGE && URL_APPLY_PANEL_IMAGE.startsWith('http')) embed.setImage(URL_APPLY_PANEL_IMAGE);
         await message.channel.send({ embeds: [embed], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ems_apply_btn').setLabel('تقديم الآن 📝').setStyle(ButtonStyle.Danger))] });
         await message.delete().catch(() => null);
@@ -313,12 +314,11 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// ================= [ معالجة التفاعلات والأزرار ونظام الإجازات ] =================
+// ================= [ معالجة التفاعلات والأزرار ونظام الإجازات المحدث ] =================
 client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton()) {
         const { customId, user, guild } = interaction;
 
-        // فتح مودال الإجازة
         if (customId === 'btn_request_leave') {
             const modal = new ModalBuilder().setCustomId('modal_submit_leave').setTitle('📅 نموذج طلب إجازة رسمية');
             modal.addComponents(
@@ -328,48 +328,65 @@ client.on('interactionCreate', async (interaction) => {
             return await interaction.showModal(modal);
         }
 
-        // فتح مودال الاستقالة
         if (customId === 'btn_request_resign') {
             const modal = new ModalBuilder().setCustomId('modal_submit_resign').setTitle('📝 نموذج تقديم استقالة رسمية');
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('resign_reason').setLabel('أسباب الاستقالة من قطاع الصحة:').setStyle(TextInputStyle.Paragraph).setRequired(true)));
             return await interaction.showModal(modal);
         }
 
-        // أزرار اتخاذ القرار للإجازات والاستقالات من الإدارة
+        // دالة معالجة الأزرار وقبول الإجازات المصححة والمؤمنة 100%
         if (customId.startsWith('decision_leave_') || customId.startsWith('decision_resign_')) {
             if (!interaction.member.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.reply({ content: '❌ مخصص لإدارة شؤون الموظفين فقط.', ephemeral: true });
             const parts = customId.split('_');
-            const action = parts[1]; // accept or reject
+            const action = parts[1]; 
             const type = parts[0] === 'decision_leave' ? 'leave' : 'resign';
             const applicantId = parts[2];
             const applicant = await guild.members.fetch(applicantId).catch(() => null);
 
-            await interaction.message.delete().catch(() => null);
+            if (!applicant) return interaction.reply({ content: '❌ تعذر العثور على هذا الموظف في السيرفر حالياً.', ephemeral: true });
             const allData = getPointsData();
 
             if (action === 'accept') {
                 if (type === 'leave') {
                     if (!allData.leave_users.includes(applicantId)) allData.leave_users.push(applicantId);
                     savePointsData(allData);
-                    if (applicant) {
-                        if (ROLE_LEAVE.length > 5) await applicant.roles.add(ROLE_LEAVE).catch(() => null);
-                        await applicant.send(`🟢 **تم الموافقة على طلب إجازتك رسمياً.** نظام رادار الصوت لن يقوم بطردك تلقائياً الآن لحين انتهاء مدتك.`).catch(() => null);
+                    
+                    let roleAdded = false;
+                    if (ROLE_LEAVE && ROLE_LEAVE.length > 5) {
+                        try {
+                            await applicant.roles.add(ROLE_LEAVE);
+                            roleAdded = true;
+                        } catch (err) {
+                            console.error("خطأ في إعطاء رتبة الإجازة:", err);
+                        }
                     }
+
+                    await applicant.send(`🟢 **تم الموافقة على طلب إجازتك رسمياً.** نظام رادار الصوت لن يقوم بطردك تلقائياً الآن لحين انتهاء مدتك وعودتك للخدمة.`).catch(() => null);
                     const ch = guild.channels.cache.get(LOG_APPLY_DECISION);
-                    if (ch) await ch.send(`🟢 تم اعتماد إجازة العضو <@${applicantId}> بواسطة ${user}`);
+                    if (ch) await ch.send(`🟢 تم اعتماد إجازة العضو ${applicant} بواسطة ${user}`);
+                    
+                    await interaction.message.delete().catch(() => null);
+                    return interaction.reply({ 
+                        content: `✅ تم اعتماد الإجازة بنجاح! ${roleAdded ? 'ورتبة الإجازة تم منحها للعضو.' : '⚠️ تنبيه: لم يتمكن البوت من منح الرتبة آلياً، يرجى سحب رتبة البوت لأعلى قائمة الـ Roles لتتخطى صلاحياته رتبة الإجازة الحالية.'}`, 
+                        ephemeral: true 
+                    });
+
                 } else {
-                    if (applicant) {
-                        const allEmsRoleIds = [ROLE_WARN_1, ROLE_WARN_2, ROLE_WARN_3, ROLE_LEAVE, ...EMS_ROLES.map(r => r.value)].filter(id => id.length > 5);
-                        await applicant.roles.remove(allEmsRoleIds).catch(() => null);
-                        await applicant.send(`🔴 **تم قبول طلب استقالتك رسميًا من قطاع الصحة وتم سحب الصلاحيات الرتب، نتمنى لك التوفيق.**`).catch(() => null);
-                    }
+                    const allEmsRoleIds = [ROLE_WARN_1, ROLE_WARN_2, ROLE_WARN_3, ROLE_LEAVE, ...EMS_ROLES.map(r => r.value)].filter(id => id.length > 5);
+                    await applicant.roles.remove(allEmsRoleIds).catch(() => null);
+                    await applicant.send(`🔴 **تم قبول طلب استقالتك رسميًا من قطاع الصحة وتم سحب كافة الصلاحيات والرتب، نتمنى لك التوفيق.**`).catch(() => null);
+                    
                     const ch = guild.channels.cache.get(LOG_FIRE);
-                    if (ch) await ch.send(`❌ تم قبول استقالة العضو <@${applicantId}> ومسح رتبه بواسطة ${user}`);
+                    if (ch) await ch.send(`❌ تم قبول استقالة العضو ${applicant} ومسح رتبه بالكامل بواسطة الإداري ${user}`);
+                    
+                    await interaction.message.delete().catch(() => null);
+                    return interaction.reply({ content: '❌ تم قبول الاستقالة وشطب ملف الموظف بنجاح.', ephemeral: true });
                 }
             } else {
-                if (applicant) await applicant.send(`❌ **نأسف، تم رفض طلبك (إجازة/استقالة) من قِبل إدارة شؤون الموظفين، يرجى مراجعة المسؤول.**`).catch(() => null);
+                await applicant.send(`❌ **نأسف، تم رفض طلبك (إجازة/استقالة) من قِبل إدارة شؤون الموظفين، يرجى مراجعة المسؤول.**`).catch(() => null);
+                await interaction.message.delete().catch(() => null);
+                return interaction.reply({ content: '🔴 تم رفض الطلب وإغلاق المعاملة بنجاح.', ephemeral: true });
             }
-            return interaction.reply({ content: '✅ تم قيد واعتماد القرار وإرسال الإشعار بنجاح!', ephemeral: true });
         }
 
         if (customId.startsWith('answer_question_btn_')) {
@@ -382,7 +399,6 @@ client.on('interactionCreate', async (interaction) => {
         if (customId === 'duty_on_btn') {
             if (activeDuty.has(user.id)) return interaction.reply({ content: '⚠️ مسجل دخول مسبقاً!', ephemeral: true });
             
-            // إلغاء حالة الإجازة تلقائياً بمجرد رغبة الشخص في النزول للديوتي والعمل حياً
             const allData = getPointsData();
             if (allData.leave_users.includes(user.id)) {
                 allData.leave_users = allData.leave_users.filter(id => id !== user.id); savePointsData(allData);
@@ -393,7 +409,7 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.message.edit({ embeds: [createDutyEmbed(guild)] });
             const logChannel = guild.channels.cache.get(LOG_DUTY_CHANNEL);
             if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🟢 تسجيل دخول موظف (On Duty)').setDescription(`🚑 الموظف: ${user}\n⏰ التوقيت: <t:${Math.floor(Date.now() / 1000)}:F>`).setColor('#2ecc71')] });
-            return interaction.reply({ content: '🟢 تم تسجيل دخولك بنجاح! تم فحص وإلغاء إجازتك آلياً لعودتك لميدان العمل الحقيقي بالتوفيق.', ephemeral: true });
+            return interaction.reply({ content: '🟢 تم تسجيل دخولك بنجاح! رادار رصد جودة الصوت يعمل الآن؛ يرجى فتح المايك والتفاعل داخل الغرف الطبية باستمرار لعدم الطرد الإجباري وحفظ ساعاتك.', ephemeral: true });
         }
 
         if (customId === 'duty_off_btn') {
@@ -554,7 +570,6 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isModalSubmit()) {
         const { customId, fields, guild, user } = interaction;
 
-        // استلام طلب الإجازة وإرساله للإدارة
         if (customId === 'modal_submit_leave') {
             const duration = fields.getTextInputValue('leave_duration');
             const reason = fields.getTextInputValue('leave_reason');
@@ -569,7 +584,6 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.reply({ content: '✅ تم إرسال نموذج طلب إجازتك بنجاح وجاري تدقيقه من شؤون الموظفين بالإدارة.', ephemeral: true });
         }
 
-        // استلام طلب الاستقالة وإرساله للإدارة
         if (customId === 'modal_submit_resign') {
             const reason = fields.getTextInputValue('resign_reason');
             const logChannel = guild.channels.cache.get(CHANNEL_APPLY_LOG);
@@ -641,7 +655,7 @@ client.on('interactionCreate', async (interaction) => {
             await targetMember.send(`✉️ إشعار رسمي:\nالإجراء: **${actionTitle}**\nالسبب: ${reasonOrValue}`).catch(() => null);
             
             await checkAndExecuteAutoPromotion(targetMember, guild);
-            return interaction.reply({ content: `✅ تم تنفيذ الإجراء بنجاح وتحديث نظام البيانات ومحرك الترقيات التلقائي!`, ephemeral: true });
+            return interaction.reply({ content: `✅ تم تنفيذ الإجراء بنجاح وتحديث نظام البيانات واللوغات ومحرك الترقيات التلقائي!`, ephemeral: true });
         }
 
         if (customId === 'modal_force_login') {
