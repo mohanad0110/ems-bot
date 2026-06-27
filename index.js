@@ -52,11 +52,9 @@ const securityOtps = new Map();
 const ROLE_WARN_1 = '1515788388110962768'; 
 const ROLE_WARN_2 = '1515788391671108649'; 
 const ROLE_WARN_3 = '1515788391449366648'; 
-
-// 📅 تنبيه: تأكد من وضع ID رتبة "في إجازة" مستقلة تماماً هنا ولا تكرر ID رتبة يمتلكها العضو مسبقاً!
 const ROLE_LEAVE = '1520315094855061677'; 
 
-const CHANNEL_WELCOME_LOG = '1515788540116467972'; 
+const CHANNEL_WELCOME_LOG = '1515788498638995607'; 
 const CHANNEL_APPLY_LOG = '1518097965120491652'; 
 const LOG_DUTY_CHANNEL = '1515788579199123506'; 
 
@@ -83,7 +81,7 @@ const LOG_POINTS = '1515788614783467780';
 
 const ROLE_ACCEPT_2 = '1515788325884006464'; 
 
-// 📈 شروط نظام الترقيات التلقائي الذكي لجميع الرتب
+// شروط الترقيات التلقائية
 const PROMOTION_REQUIREMENTS = [
     { roleId: '1515788324873306255', name: '⚕️ EMT', requiredPoints: 30, requiredMinutes: 180 },          
     { roleId: '1515788323644244038', name: '🩺 Senior EMT', requiredPoints: 80, requiredMinutes: 480 },   
@@ -170,7 +168,7 @@ async function checkAndExecuteAutoPromotion(member, guild) {
 }
 
 client.on('ready', () => {
-    console.log(`✅ البوت جاهز ومكتمل بجميع ميزات الشرف التلقائي ونظام طلبات الإجازات: ${client.user.tag}`);
+    console.log(`✅ البوت جاهز ومكتمل وخالٍ من مشاكل تشفير اللغة العربية: ${client.user.tag}`);
 
     // Backup تلقائي كل 24 ساعة
     setInterval(async () => {
@@ -215,19 +213,57 @@ client.on('ready', () => {
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
 
-    // نظام نشر التقارير التلقائي الجبار
+    // 📢 [نظام نشر التقارير التلقائي الجبار والمحمي من الطلاسم والملفات النصية] 📢
     if (message.channelId === CHANNEL_ADMIN_REPORT_INPUT) {
-        const reportContent = message.content.trim(); if (!reportContent) return;
-        await message.delete().catch(() => null);
-        const publicChannel = message.guild.channels.cache.get(CHANNEL_PUBLIC_REPORT_OUTPUT);
-        if (!publicChannel) return;
-        const chunks = reportContent.match(/[\s\S]{1,2000}/g) || [reportContent];
-        for (let i = 0; i < chunks.length; i++) {
-            const reportEmbed = new EmbedBuilder().setTitle(i === 0 ? '🚑 | بيان رسمي صادر عن إدارة قطاع الصحة' : '🚑 | تابع البيان الرسمي').setDescription(chunks[i]).setColor('#e74c3c').setFooter({ text: `حرر بواسطة الإداري: ${message.author.username}`, iconURL: message.author.displayAvatarURL() }).setTimestamp();
-            if (i === 0) { await publicChannel.send({ content: '📢 @everyone | **تقرير إداري جديد عاجل يرجى القراءة والالتزام:**', embeds: [reportEmbed] }); } 
-            else { await publicChannel.send({ embeds: [reportEmbed] }); }
+        // تنظيف المحتوى وتجنب قراءة ملفات txt المقلوبة
+        let reportContent = message.content ? message.content.trim() : "";
+        
+        // إذا قام الإداري بلصق الكود وضغط إدخال وجاءت كملف مرفق بسبب قيود ديسكورد، يقوم البوت بإنقاذ الموقف وقراءة الملف بتشفير عربي نقي 100%
+        if (message.attachments.size > 0) {
+            const fileAttachment = message.attachments.first();
+            if (fileAttachment.name.endsWith('.txt')) {
+                try {
+                    const response = await fetch(fileAttachment.url);
+                    const arrayBuffer = await response.arrayBuffer();
+                    // فرض تشفير الـ UTF-8 لكسر طلاسم الحروف العربية وعلامات الاستفهام نهائياً
+                    const decoder = new TextDecoder('utf-8');
+                    reportContent = decoder.decode(arrayBuffer).trim();
+                } catch (err) {
+                    console.error("خطأ في قراءة ملف التقرير المرفق:", err);
+                    return message.channel.send("❌ حدث خطأ تقني أثناء محاولة كسر طلاسم الملف النصي.");
+                }
+            }
         }
-        return message.channel.send(`✅ **تم نشر تقريرك بنجاح وعمل منشن للجميع!**`).then(msg => setTimeout(() => msg.delete().catch(() => null), 5000));
+
+        if (!reportContent) return;
+
+        // مسح الرسالة أو الملف المرفق من روم الإدارة عشان يظل نظيف
+        await message.delete().catch(() => null);
+
+        const publicChannel = message.guild.channels.cache.get(CHANNEL_PUBLIC_REPORT_OUTPUT);
+        if (!publicChannel) return message.author.send("❌ خطأ: تعذر العثور على روم نشر التقارير العام بالسيرفر.").catch(() => null);
+
+        // تقسيم النص الطويل لأقسام داخل شات ديسكورد حتى لا يقلب ملف نصي طلاسم مرة أخرى
+        const chunks = reportContent.match(/[\s\S]{1,1800}/g) || [reportContent];
+
+        for (let i = 0; i < chunks.length; i++) {
+            // تنظيف أي علامات برمجية زائدة مثل البلوكات القديمة
+            let cleanText = chunks[i].replace(/```fix/g, "").replace(/```/g, "");
+            
+            const reportEmbed = new EmbedBuilder()
+                .setTitle(i === 0 ? '🚑 | بيان رسمي صادر عن إدارة قطاع الصحة' : '🚑 | تابع البيان الرسمي المرفق')
+                .setDescription(cleanText)
+                .setColor('#e74c3c')
+                .setFooter({ text: `حرر بواسطة الإداري المسؤول: ${message.author.username}`, iconURL: message.author.displayAvatarURL() })
+                .setTimestamp();
+
+            if (i === 0) { 
+                await publicChannel.send({ content: '📢 @everyone | **تقرير إداري جديد عاجل يرجى القراءة والالتزام:**', embeds: [reportEmbed] }); 
+            } else { 
+                await publicChannel.send({ embeds: [reportEmbed] }); 
+            }
+        }
+        return message.channel.send(`✅ **تم إنقاذ التقرير، وفك شفرته للعربية السليمة، ونشره بنجاح بالروم العام مع منشن للجميع!**`).then(msg => setTimeout(() => msg.delete().catch(() => null), 6000));
     }
 
     // نظام روم الأسئلة
@@ -254,7 +290,6 @@ client.on('messageCreate', async (message) => {
         return message.reply({ embeds: [statsEmbed] });
     }
 
-    // 🏆 [أمر لوحة الشرف التلقائي الجديد] 🏆
     if (command === 'leaderboard') {
         const sortedPoints = Object.entries(allData.points).sort((a, b) => b[1] - a[1]).slice(0, 3);
         let leaderboardText = "👑 **قائمة أفضل 3 مسعفين إنتاجية وكفاءة لهذا الأسبوع:**\n\n";
@@ -268,14 +303,13 @@ client.on('messageCreate', async (message) => {
         return message.reply({ embeds: [lbEmbed] });
     }
 
-    // بنل طلبات الإجازة والاستقالة المؤتمت
     if (command === 'setup-requests') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ للإدارة فقط.');
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('btn_request_leave').setLabel('طلب إجازة رسمي 📅').setStyle(ButtonStyle.Primary),
             new ButtonBuilder().setCustomId('btn_request_resign').setLabel('تقديم استقالة 📝').setStyle(ButtonStyle.Danger)
         );
-        const embed = new EmbedBuilder().setTitle('📅 مركز الطلبات الإدارية وشؤون الموظفين 📝').setDescription('عبر هذا البنل، يمكن لكافة منسوبي قطاع الصحة تقديم طلبات الإجازات الرسمية أو الاستقالات لتتم معالجتها آلياً من قِبل الإدارة العليا.').setColor('#2c3e50');
+        const embed = new EmbedBuilder().setTitle('📅 center للطلبات الإدارية وشؤون الموظفين 📝').setDescription('عبر هذا البنل، يمكن لكافة منسوبي قطاع الصحة تقديم طلبات الإجازات الرسمية أو الاستقالات لتتم معالجتها آلياً من قِبل الإدارة العليا.').setColor('#2c3e50');
         await message.channel.send({ embeds: [embed], components: [row] });
         await message.delete().catch(() => null);
     }
@@ -334,7 +368,6 @@ client.on('interactionCreate', async (interaction) => {
             return await interaction.showModal(modal);
         }
 
-        // دالة معالجة الأزرار وقبول الإجازات المصححة والمؤمنة 100%
         if (customId.startsWith('decision_leave_') || customId.startsWith('decision_resign_')) {
             if (!interaction.member.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.reply({ content: '❌ مخصص لإدارة شؤون الموظفين فقط.', ephemeral: true });
             const parts = customId.split('_');
@@ -420,6 +453,7 @@ client.on('interactionCreate', async (interaction) => {
             const allData = getPointsData(); allData.duty_hours[user.id] = (allData.duty_hours[user.id] || 0) + diffMins; savePointsData(allData);
             const logChannel = guild.channels.cache.get(LOG_DUTY_CHANNEL);
             if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🔴 تسجيل خروج موظف (Off Duty)').setDescription(`🚑 الموظف: ${user}\n⏳ مدة المناوبة: **${Math.floor(diffMins / 60)}** ساعة`).setColor('#e74c3c')] });
+            
             await checkAndExecuteAutoPromotion(interaction.member, guild);
             return interaction.reply({ content: `🔴 تم تسجيل خروجك بنجاح وجرى فحص رصيدك للترقيات المتاحة.`, ephemeral: true });
         }
