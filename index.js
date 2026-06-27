@@ -19,7 +19,7 @@ const client = new Client({
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
         GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildVoiceStates // تم تفعيله لمراقبة التحضير الذكي بالصوت
+        GatewayIntentBits.GuildVoiceStates 
     ]
 });
 
@@ -44,7 +44,7 @@ function savePointsData(data) {
 const activeDuty = new Map();
 const activeDispatchDuty = new Map();
 const activeActions = new Map();
-const securityOtps = new Map(); // لحفظ رموز الأمان المؤقتة للإدارة
+const securityOtps = new Map(); // لحفظ الرموز الأمنية لكل مسؤول توليدها لحظياً
 
 // ================= [ 🚑 إعدادات الرتب ورومات اللوق بالـ ID 🚑 ] =================
 const ROLE_WARN_1 = '1515788388110962768'; 
@@ -59,8 +59,8 @@ const DISPATCH_CONTROL_CHANNEL = '1519907806356967575';
 const ACTIVE_DISPATCH_CHANNEL = '1515788576426819724';  
 const LOG_DISPATCH_DUTY_CHANNEL = '1519908274915250288'; 
 
-const CHANNEL_QUESTIONS = '1515788540116467972'; // ضَع ID روم الأسئلة questions هنا
-const CHANNEL_ADMIN_ANSWERS = '1519907806356967575'; // ضَع ID روم الإدارة المخصص للإجابات هنا
+const CHANNEL_QUESTIONS = '1515788540116467972'; 
+const CHANNEL_ADMIN_ANSWERS = '1519907806356967575'; 
 
 const URL_APPLY_PANEL_IMAGE = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
 const URL_ADMIN_PANEL_IMAGE = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
@@ -93,7 +93,7 @@ function createDutyEmbed(guild) {
     const dateString = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear()}`;
     let activeStaffList = ""; let count = 1;
     activeDuty.forEach((data, userId) => {
-        activeStaffList += `**${count}.** <@${userId}> | وقت التحضير: <t:${Math.floor(data.startTime / 1000)}:t> ${data.isAfk ? '⚠️ (خامل/غير متواجد بالصوت)' : '🟢 (نشط بالصوت)'}\n`;
+        activeStaffList += `**${count}.** <@${userId}> | وقت التحضير: <t:${Math.floor(data.startTime / 1000)}:t> ${data.isAfk ? '⚠️ (خامل/خارج الصوت)' : '🟢 (نشط بالصوت)'}\n`;
         count++;
     });
     if (activeStaffList === "") activeStaffList = "*لا يوجد موظفين في الخدمة حالياً.*";
@@ -104,7 +104,7 @@ function createDutyEmbed(guild) {
 
 // ================= [ 🛠️ تسجيل الـ Slash Commands تلقائياً 🛠️ ] =================
 client.on('ready', async () => {
-    console.log(`✅ البوت جاهز تقنياً: ${client.user.tag}`);
+    console.log(`✅ البوت جاهز ومصحح بالكامل: ${client.user.tag}`);
 
     const commands = [
         new SlashCommandBuilder().setName('points').setDescription('📊 استعلام عن رصيد نقاط موظف معين').addUserOption(opt => opt.setName('user').setDescription('الموظف المستهدف').setRequired(false)),
@@ -119,10 +119,10 @@ client.on('ready', async () => {
     const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
     try {
         await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
-        console.log('🚀 تم تسجيل الـ Slash Commands بنجاح في ديسكورد API.');
-    } catch (error) { console.error('خطأ في تسجيل الأوامر المائلة:', error); }
+        console.log('🚀 تم تسجيل الـ Slash Commands بنجاح.');
+    } catch (error) { console.error(error); }
 
-    // 💾 إعداد نظام الـ Auto-Backup التلقائي لملف البيانات كل 24 ساعة
+    // Backup تلقائي كل 24 ساعة
     setInterval(async () => {
         const logChannel = client.channels.cache.get(LOG_DUTY_CHANNEL);
         if (logChannel && fs.existsSync(POINTS_FILE)) {
@@ -130,60 +130,50 @@ client.on('ready', async () => {
         }
     }, 1000 * 60 * 60 * 24);
 
-    // ⏱️ نظام مراقبة الـ AFK والتحضير الوهمي بالصوت (Anti-AFK Check Loop يعمل كل دقيقة)
+    // مراقبة الـ Voice AFK
     setInterval(() => {
         activeDuty.forEach(async (data, userId) => {
             const guild = client.guilds.cache.first(); if (!guild) return;
             const member = await guild.members.fetch(userId).catch(() => null);
-            
-            // شروط الخمول: ليس في روم صوتي، أو مسوي Mute و Deafen بنفس الوقت
             const isNoVoice = !member?.voice?.channelId;
             const isMutedAndDeaf = member?.voice?.selfMute && member?.voice?.selfDeafen;
 
             if (isNoVoice || isMutedAndDeaf) {
-                data.afkMinutes += 1;
-                data.isAfk = true;
-                if (data.afkMinutes >= 20) { // لو كمل 20 دقيقة خمول، يتم إخراجه تلقائياً وحفظ ساعاته الفعلية
+                data.afkMinutes += 1; data.isAfk = true;
+                if (data.afkMinutes >= 20) { 
                     activeDuty.delete(userId);
-                    const diffMins = Math.floor((Date.now() - data.startTime) / 60000) - 20; // خصم وقت الخمول
+                    const diffMins = Math.floor((Date.now() - data.startTime) / 60000) - 20;
                     if (diffMins > 0) {
                         const allData = getPointsData();
                         allData.duty_hours[userId] = (allData.duty_hours[userId] || 0) + diffMins;
                         savePointsData(allData);
                     }
                     const logChannel = guild.channels.cache.get(LOG_DUTY_CHANNEL);
-                    if (logChannel) {
-                        const afkEmbed = new EmbedBuilder().setTitle('⚠️ خروج تلقائي إجباري (Anti-AFK)').setDescription(`تم تسجيل خروج الموظف ${member} تلقائياً بسبب الخمول وعدم التواجد في الرومات الصوتية الطبية لأكثر من 20 دقيقة.`).setColor('#e67e22').setTimestamp();
-                        await logChannel.send({ embeds: [afkEmbed] });
-                    }
-                    await member.send(`⚠️ إشعار: تم تسجيل خروجك تلقائياً من الخدمة بسبب بقائك خاملاً خارج غرف الصوت لأكثر من 20 دقيقة.`).catch(() => null);
+                    if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('⚠️ خروج تلقائي (Anti-AFK)').setDescription(`تم تسجيل خروج ${member} بسبب الخمول خارج الصوت لأكثر من 20 دقيقة.`).setColor('#e67e22').setTimestamp()] });
+                    await member.send(`⚠️ تنبيه: تم تسجيل خروجك تلقائياً من الخدمة بسبب بقائك خاملاً خارج قنوات الصوت لـ 20 دقيقة.`).catch(() => null);
                 }
-            } else {
-                data.afkMinutes = 0;
-                data.isAfk = false;
-            }
+            } else { data.afkMinutes = 0; data.isAfk = false; }
         });
     }, 60000);
 });
 
-// ================= [ ❓ نظام مراقبة روم الأسئلة questions ومسحها ❓ ] =================
+// نظام روم الأسئلة questions
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
     if (message.channelId === CHANNEL_QUESTIONS) {
         const questionText = message.content.trim(); if (!questionText) return;
         await message.delete().catch(() => null);
-
         const adminChannel = message.guild.channels.cache.get(CHANNEL_ADMIN_ANSWERS);
         if (!adminChannel) return message.author.send("❌ خطأ بالروم الإداري.").catch(() => null);
 
         const qEmbed = new EmbedBuilder().setTitle('❓ سؤال جديد يحتاج إلى إجابة').addFields({ name: '👤 المرسل:', value: `${message.author}`, inline: true }, { name: '💬 نص السؤال:', value: `\`\`\`text\n${questionText}\n\`\`\`` }).setColor('#f1c40f').setTimestamp();
         const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`answer_question_btn_${message.author.id}`).setLabel('📝 الإجابة على السؤال').setStyle(ButtonStyle.Primary));
         await adminChannel.send({ embeds: [qEmbed], components: [row] });
-        return message.author.send(`✅ تم استلام سؤالك وجاري مراجعته من قِبل الإدارة، سيصلك الجواب هنا بالخاص فوراً.`).catch(() => null);
+        return message.author.send(`✅ تم استلام سؤالك بنجاح وجاري مراجعته، سيصلك الجواب هنا بالخاص فوراً.`).catch(() => null);
     }
 });
 
-// ================= [ 🛠️ معالجة الأوامر المائلة Slash Commands 🛠️ ] =================
+// معالجة الأوامر المائلة Slash Commands
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
     const { commandName } = interaction;
@@ -191,125 +181,98 @@ client.on('interactionCreate', async (interaction) => {
     if (commandName === 'points') {
         const targetUser = interaction.options.getUser('user') || interaction.user;
         const allData = getPointsData();
-        const userPoints = allData.points[targetUser.id] || 0;
-        return interaction.reply({ embeds: [new EmbedBuilder().setTitle('📊 السجل الرقمي لنقاط الموظف').setDescription(`الموظف: <@${targetUser.id}>\n✨ رصيد النقاط: **${userPoints}** نقطة`).setColor('#3498db')] });
+        return interaction.reply({ embeds: [new EmbedBuilder().setTitle('📊 السجل الرقمي لنقاط الموظف').setDescription(`الموظف: <@${targetUser.id}>\n✨ رصيد النقاط: **${allData.points[targetUser.id] || 0}** نقطة`).setColor('#3498db')] });
     }
-
     if (commandName === 'duty-check') {
         const targetUser = interaction.options.getUser('user') || interaction.user;
-        const allData = getPointsData();
-        const totalMinutes = allData.duty_hours[targetUser.id] || 0;
-        return interaction.reply({ embeds: [new EmbedBuilder().setTitle('⏱️ سجل ساعات العمل للموظف').setDescription(`الموظف: <@${targetUser.id}>\n⏳ إجمالي الوقت مقترن بالخدمة: **${Math.floor(totalMinutes / 60)}** ساعة و **${totalMinutes % 60}** دقيقة`).setColor('#2ecc71')] });
+        const allData = getPointsData(); const totalMinutes = allData.duty_hours[targetUser.id] || 0;
+        return interaction.reply({ embeds: [new EmbedBuilder().setTitle('⏱️ سجل ساعات العمل للموظف').setDescription(`الموظف: <@${targetUser.id}>\n⏳ الوقت المسجل: **${Math.floor(totalMinutes / 60)}** ساعة و **${totalMinutes % 60}** دقيقة`).setColor('#2ecc71')] });
     }
-
     if (commandName === 'setup-duty') {
-        const embed = createDutyEmbed(interaction.guild);
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('duty_on_btn').setLabel('دخول الخدمة 🟢').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('duty_off_btn').setLabel('خروج من الخدمة 🔴').setStyle(ButtonStyle.Danger),
-            new ButtonBuilder().setCustomId('admin_panel_shortcut').setLabel('Affairs Options ⚙️').setStyle(ButtonStyle.Primary)
-        );
-        await interaction.channel.send({ embeds: [embed], components: [row] });
+        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('duty_on_btn').setLabel('دخول الخدمة 🟢').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId('duty_off_btn').setLabel('خروج من الخدمة 🔴').setStyle(ButtonStyle.Danger), new ButtonBuilder().setCustomId('admin_panel_shortcut').setLabel('Affairs Options ⚙️').setStyle(ButtonStyle.Primary));
+        await interaction.channel.send({ embeds: [createDutyEmbed(interaction.guild)], components: [row] });
         return interaction.reply({ content: '✅ تم إرسال لوحة التحضير بنجاح.', ephemeral: true });
     }
-
     if (commandName === 'setup-dispatch') {
-        const embed = new EmbedBuilder().setTitle('🚑 مركز عمليات قطاع الصحة | Medical Dispatch Panel').setDescription('استخدم الأزرار أدناه لإدارة فترة الدسباتش وتوزيع الـ Zones ديناميكياً.').setColor('#e74c3c').setTimestamp();
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('dispatch_duty_on').setLabel('دخول فترة دسباتش 🟢').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('dispatch_duty_off').setLabel('خروج فترة دسباتش 🔴').setStyle(ButtonStyle.Danger),
-            new ButtonBuilder().setCustomId('open_dispatch_modal').setLabel('توزيع الـ Zones الذكي 🗺️').setStyle(ButtonStyle.Primary)
-        );
-        await interaction.channel.send({ embeds: [embed], components: [row] });
+        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('dispatch_duty_on').setLabel('دخول فترة دسباتش 🟢').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId('dispatch_duty_off').setLabel('خروج فترة دسباتش 🔴').setStyle(ButtonStyle.Danger), new ButtonBuilder().setCustomId('open_dispatch_modal').setLabel('توزيع الـ Zones الذكي 🗺️').setStyle(ButtonStyle.Primary));
+        await interaction.channel.send({ embeds: [new EmbedBuilder().setTitle('🚑 مركز عمليات قطاع الصحة | Medical Dispatch Panel').setDescription('استخدم الأزرار أدناه لإدارة فترة الدسباتش وتوزيع الـ Zones ديناميكياً.').setColor('#e74c3c')], components: [row] });
         return interaction.reply({ content: '✅ تم إرسال لوحة الدسباتش بنجاح.', ephemeral: true });
     }
-
     if (commandName === 'setup-apply') {
-        const embed = new EmbedBuilder().setTitle('🚑 التتقديم على وزارة الصحة (EMS) 🚑').setDescription('اضغط على الزر أدناه لتعبئة استمارة الانضمام الإلكترونية بالكامل.').setColor('#e74c3c');
+        const embed = new EmbedBuilder().setTitle('🚑 التقديم على وزارة الصحة (EMS) 🚑').setDescription('اضغط على الزر أدناه لتعبئة استمارة الانضمام الإلكترونية بالكامل.').setColor('#e74c3c');
         if (URL_APPLY_PANEL_IMAGE && URL_APPLY_PANEL_IMAGE.startsWith('http')) embed.setImage(URL_APPLY_PANEL_IMAGE);
-        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ems_apply_btn').setLabel('تقديم الآن 📝').setStyle(ButtonStyle.Danger));
-        await interaction.channel.send({ embeds: [embed], components: [row] });
+        await interaction.channel.send({ embeds: [embed], components: [new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('ems_apply_btn').setLabel('تقديم الآن 📝').setStyle(ButtonStyle.Danger))] });
         return interaction.reply({ content: '✅ تم إرسال لوحة التقديم بنجاح.', ephemeral: true });
     }
-
     if (commandName === 'add-zone') {
-        const zoneName = interaction.options.getString('name');
-        const allData = getPointsData();
-        if (allData.custom_zones.includes(zoneName)) return interaction.reply({ content: '⚠️ هذه المنطقة موجودة بالفعل باللوحة!', ephemeral: true });
-        if (allData.custom_zones.length >= 5) return interaction.reply({ content: '⚠️ الحد الأقصى للمناطق في اللوحة الواحدة هو 5 مناطق بسبب قيود ديسكورد الصارمة للـ Rows.', ephemeral: true });
+        const zoneName = interaction.options.getString('name'); const allData = getPointsData();
+        if (allData.custom_zones.includes(zoneName)) return interaction.reply({ content: '⚠️ موجودة بالفعل!', ephemeral: true });
+        if (allData.custom_zones.length >= 5) return interaction.reply({ content: '⚠️ الحد الأقصى 5 مناطق فقط.', ephemeral: true });
         allData.custom_zones.push(zoneName); savePointsData(allData);
-        return interaction.reply({ content: `✅ تم إضافة المنطقة الجديدة **[ ${zoneName} ]** بنجاح للوحة الدسباتش الديناميكية!` });
+        return interaction.reply({ content: `✅ تم إضافة **[ ${zoneName} ]** بنجاح للوحة الدسباتش!` });
     }
-
     if (commandName === 'remove-zone') {
-        const zoneName = interaction.options.getString('name');
-        const allData = getPointsData();
-        if (!allData.custom_zones.includes(zoneName)) return interaction.reply({ content: '❌ هذه المنطقة غير موجودة بالأساس في اللوحة.', ephemeral: true });
+        const zoneName = interaction.options.getString('name'); const allData = getPointsData();
+        if (!allData.custom_zones.includes(zoneName)) return interaction.reply({ content: '❌ غير موجودة.', ephemeral: true });
         allData.custom_zones = allData.custom_zones.filter(z => z !== zoneName); savePointsData(allData);
-        return interaction.reply({ content: `🗑️ تم حذف المنطقة **[ ${zoneName} ]** من لوحة الدسباتش بنجاح.` });
+        return interaction.reply({ content: `🗑️ تم حذف المنطقة **[ ${zoneName} ]** بنجاح.` });
     }
 });
 
-// ================= [ 🧠 معالجة كافة التفاعلات والأزرار والـ Modals 🧠 ] =================
+// ================= [ معالجة الـ Buttons والـ Modals بدون تداخل أو كراش ] =================
 client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton()) {
         const { customId, user, guild } = interaction;
 
-        // ❓ إجابة الأسئلة
         if (customId.startsWith('answer_question_btn_')) {
             const applicantId = customId.replace('answer_question_btn_', '');
-            const modal = new ModalBuilder().setCustomId(`modal_answer_submit_${applicantId}`).setTitle('📝 كتابة الإجابة الرسمية على السؤال');
+            const modal = new ModalBuilder().setCustomId(`modal_answer_submit_${applicantId}`).setTitle('📝 الإجابة على السؤال');
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('answer_text_input').setLabel('اكتب تفاصيل الإجابة بوضوح هنا:').setStyle(TextInputStyle.Paragraph).setRequired(true)));
             return await interaction.showModal(modal);
         }
 
-        // دخول الموظف
         if (customId === 'duty_on_btn') {
-            if (activeDuty.has(user.id)) return interaction.reply({ content: '⚠️ أنت مسجل دخولك بالفعل مسبقاً!', ephemeral: true });
+            if (activeDuty.has(user.id)) return interaction.reply({ content: '⚠️ مسجل دخول مسبقاً!', ephemeral: true });
             activeDuty.set(user.id, { startTime: Date.now(), afkMinutes: 0, isAfk: false });
             await interaction.message.edit({ embeds: [createDutyEmbed(guild)] });
             const logChannel = guild.channels.cache.get(LOG_DUTY_CHANNEL);
-            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🟢 تسجيل دخول موظف (On Duty)').setDescription(`🚑 الموظف: ${user}\n⏰ وقت الدخول: <t:${Math.floor(Date.now() / 1000)}:F>`).setColor('#2ecc71')] });
-            return interaction.reply({ content: '🟢 تم تسجيل دخولك بنجاح! بالتوفيق في مناوبتك وننبهك بأن التواجد بالصوت إلزامي لمنع الخروج التلقائي الحامي.', ephemeral: true });
+            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🟢 تسجيل دخول موظف (On Duty)').setDescription(`🚑 الموظف: ${user}\n⏰ التوقيت: <t:${Math.floor(Date.now() / 1000)}:F>`).setColor('#2ecc71')] });
+            return interaction.reply({ content: '🟢 تم تسجيل دخولك بنجاح! التواجد بالصوت إلزامي لمنع نظام الطرد التلقائي للاستعراض الوهمي.', ephemeral: true });
         }
 
-        // خروج الموظف
         if (customId === 'duty_off_btn') {
-            if (!activeDuty.has(user.id)) return interaction.reply({ content: '⚠️ أنت لست مسجلاً في الخدمة حالياً!', ephemeral: true });
+            if (!activeDuty.has(user.id)) return interaction.reply({ content: '⚠️ أنت لست مسجلاً بالخدمة!', ephemeral: true });
             const data = activeDuty.get(user.id); activeDuty.delete(user.id);
             await interaction.message.edit({ embeds: [createDutyEmbed(guild)] });
             const diffMins = Math.floor((Date.now() - data.startTime) / 60000);
             const allData = getPointsData(); allData.duty_hours[user.id] = (allData.duty_hours[user.id] || 0) + diffMins; savePointsData(allData);
             const logChannel = guild.channels.cache.get(LOG_DUTY_CHANNEL);
-            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🔴 تسجيل خروج موظف (Off Duty)').setDescription(`🚑 الموظف: ${user}\n⏳ مدة المناوبة: **${Math.floor(diffMins / 60)}** ساعة و **${diffMins % 60}** دقيقة\n📊 الإجمالي الكلي المسجل: **${Math.floor(allData.duty_hours[user.id] / 60)}** ساعة.`).setColor('#e74c3c')] });
-            return interaction.reply({ content: `🔴 تم تسجيل خروجك بنجاح وحفظ ساعاتك.`, ephemeral: true });
+            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🔴 تسجيل خروج موظف (Off Duty)').setDescription(`🚑 الموظف: ${user}\n⏳ مدة المناوبة: **${Math.floor(diffMins / 60)}** ساعة و **${diffMins % 60}** دقيقة`).setColor('#e74c3c')] });
+            return interaction.reply({ content: `🔴 تم تسجيل خروجك بنجاح.`, ephemeral: true });
         }
 
-        // دخول الدسباتش
         if (customId === 'dispatch_duty_on') {
-            if (activeDispatchDuty.has(user.id)) return interaction.reply({ content: '⚠️ أنت مسجل دخول فترة الدسباتش مسبقاً!', ephemeral: true });
+            if (activeDispatchDuty.has(user.id)) return interaction.reply({ content: '⚠️ مسجل دخول مسبقاً!', ephemeral: true });
             activeDispatchDuty.set(user.id, Date.now());
             const logChannel = guild.channels.cache.get(LOG_DISPATCH_DUTY_CHANNEL);
-            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🟢 بدء فترة دسباتش جديدة').setDescription(`👮 المسؤول: ${user}\n⏰ وقت البدء: <t:${Math.floor(Date.now() / 1000)}:F>`).setColor('#2ecc71')] });
-            return interaction.reply({ content: '🟢 تم بدء فترة احتساب وقت الدسباتش بنجاح!', ephemeral: true });
+            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🟢 بدء فترة دسباتش').setDescription(`👮 المسؤول: ${user}`).setColor('#2ecc71')] });
+            return interaction.reply({ content: '🟢 تم بدء فترة الدسباتش بنجاح!', ephemeral: true });
         }
 
-        // خروج الدسباتش
         if (customId === 'dispatch_duty_off') {
-            if (!activeDispatchDuty.has(user.id)) return interaction.reply({ content: '⚠️ أنت لست مسجلاً بالخدمة حالياً!', ephemeral: true });
+            if (!activeDispatchDuty.has(user.id)) return interaction.reply({ content: '⚠️ أنت لست مسجلاً بالخدمة!', ephemeral: true });
             const startTime = activeDispatchDuty.get(user.id); activeDispatchDuty.delete(user.id);
             const diffMins = Math.floor((Date.now() - startTime) / 60000);
             const allData = getPointsData(); allData.dispatch_duty_hours[user.id] = (allData.dispatch_duty_hours[user.id] || 0) + diffMins; savePointsData(allData);
             const logChannel = guild.channels.cache.get(LOG_DISPATCH_DUTY_CHANNEL);
-            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🔴 انتهاء فترة دسباتش').setDescription(`👮 المسؤول: ${user}\n⏳ المدة المستغرقة: **${Math.floor(diffMins / 60)}** ساعة`).setColor('#e74c3c')] });
-            return interaction.reply({ content: `🔴 تم إنهاء فترة الدسباتش بنجاح.`, ephemeral: true });
+            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🔴 انتهاء فترة دسباتش').setDescription(`👮 المسؤول: ${user}\n⏳ المستغرق: **${Math.floor(diffMins / 60)}** ساعة`).setColor('#e74c3c')] });
+            return interaction.reply({ content: `🔴 تم إنهاء شفت الدسباتش بنجاح.`, ephemeral: true });
         }
 
-        // فتح لوحة الزونات المنسدلة الديناميكية للدسباتش
         if (customId === 'open_dispatch_modal') {
-            if (!activeDispatchDuty.has(user.id)) return interaction.reply({ content: '❌ يجب عليك تسجيل دخولك فترة الدسباتش أولاً قبل توزيع المناطق!', ephemeral: true });
+            if (!activeDispatchDuty.has(user.id)) return interaction.reply({ content: '❌ يجب عليك تسجيل دخول فترة الدسباتش أولاً!', ephemeral: true });
             const currentStaffIds = Array.from(activeDuty.keys());
-            if (currentStaffIds.length === 0) return interaction.reply({ content: '⚠️ لا يوجد أي موظف مسجل دخول (On Duty) حالياً في السيرفر لتوزيعه على المناطق!', ephemeral: true });
+            if (currentStaffIds.length === 0) return interaction.reply({ content: '⚠️ لا يوجد أي موظف مسجل دخول (On Duty) لتوزيعه!', ephemeral: true });
             const staffOptions = [];
             for (const staffId of currentStaffIds) {
                 const member = await guild.members.fetch(staffId).catch(() => null);
@@ -317,8 +280,9 @@ client.on('interactionCreate', async (interaction) => {
             }
             staffOptions.push({ label: '❌ لا يوجد موظف متاح لهذه المنطقة', value: 'empty_zone', description: 'إبقاء المنطقة شاغرة مؤقتاً' });
             const allData = getPointsData(); const currentZones = allData.custom_zones;
-            if (currentZones.length === 0) return interaction.reply({ content: '⚠️ اللوحة فارغة، يرجى إضافة مناطق أولاً.', ephemeral: true });
-            const setupEmbed = new EmbedBuilder().setTitle('🗺️ لوحة توزيع المناطق الطبية الديناميكية').setDescription(`قم بتحديد الموظف لكل منطقة من القوائم أدناه.\n*عدد المناطق الحالية:* **${currentZones.length}**`).setColor('#3498db').setTimestamp();
+            if (currentZones.length === 0) return interaction.reply({ content: '⚠️ اللوحة فارغة، لا توجد مناطق مضافة.', ephemeral: true });
+            
+            const setupEmbed = new EmbedBuilder().setTitle('🗺️ لوحة توزيع المناطق الطبية الديناميكية').setDescription(`قم بتحديد الموظف لكل منطقة من القوائم أدناه.`).setColor('#3498db').setTimestamp();
             const rows = []; const initialSessionZones = {};
             currentZones.forEach((zoneName, index) => {
                 initialSessionZones[`zone_${index}`] = null; 
@@ -329,7 +293,6 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ embeds: [setupEmbed], components: rows, ephemeral: true });
         }
 
-        // بنل التقديم الإلكتروني للـ EMS
         if (customId === 'ems_apply_btn') {
             const modal = new ModalBuilder().setCustomId('ems_apply_modal').setTitle('استمارة الانضمام لقطاع الصحة');
             modal.addComponents(
@@ -341,29 +304,26 @@ client.on('interactionCreate', async (interaction) => {
             return await interaction.showModal(modal);
         }
 
-        // أزرار القبول والرفض للتقديمات
         if (customId.startsWith('app_')) {
             if (!interaction.member.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.reply({ content: '❌ ليس لديك صلاحية اتخاذ القرار في التقديمات.', ephemeral: true });
-            const [, action, applicantId] = customId.split('_');
-            const applicant = await guild.members.fetch(applicantId).catch(() => null);
+            const [, action, applicantId] = customId.split('_'); const applicant = await guild.members.fetch(applicantId).catch(() => null);
             const oldEmbed = interaction.message.embeds[0];
             const updatedEmbed = EmbedBuilder.from(oldEmbed).addFields({ name: '📢 قرار الإدارة:', value: action === 'accept' ? `🟢 تم القبول بواسطة ${user}` : `🔴 تم الرفض بواسطة ${user}` });
             await interaction.message.edit({ embeds: [updatedEmbed], components: [] });
             const decisionChannel = guild.channels.cache.get(LOG_APPLY_DECISION);
             if (action === 'accept') {
                 if (applicant) {
-                    if (ROLE_ACCEPT_2 && ROLE_ACCEPT_2.length > 5) await applicant.roles.add(ROLE_ACCEPT_2).catch(() => null);
-                    await applicant.send(`🎉 تهانينا! تم قبول طلب انضمامك لقطاع الصحة (EMS). يرجى مراجعة الإدارة لإكمال المقابلة الشخصية.`).catch(() => null);
+                    if (ROLE_ACCEPT_2.length > 5) await applicant.roles.add(ROLE_ACCEPT_2).catch(() => null);
+                    await applicant.send(`🎉 تهانينا! تم قبول طلب انضمامك لقطاع الصحة (EMS).`).catch(() => null);
                 }
                 if (decisionChannel) await decisionChannel.send({ content: `🟢 تم قبول العضو <@${applicantId}> بواسطة الإداري ${user}` });
             } else {
-                if (applicant) await applicant.send(`للأسف، تم رفض طلب انضمامك لقطاع الصحة حالياً. نتمنى لك التوفيق في المرات القادمة.`).catch(() => null);
+                if (applicant) await applicant.send(`للأسف، تم رفض طلب انضمامك لقطاع الصحة حالياً.`).catch(() => null);
                 if (decisionChannel) await decisionChannel.send({ content: `🔴 تم رفض العضو <@${applicantId}> بواسطة الإداري ${user}` });
             }
             return interaction.reply({ content: `✅ تم تسجيل القرار بنجاح.`, ephemeral: true });
         }
 
-        // شؤون الموظفين - Affairs Options بنل سريع
         if (customId === 'admin_panel_shortcut') {
             if (!interaction.member.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.reply({ content: '❌ هذا الزر مخصص لإدارة شؤون الموظفين فقط.', ephemeral: true });
             const embed = new EmbedBuilder().setTitle('⚙️ لوحة تحكم إدارة قطاع الصحة السريعة ⚙️').setDescription('اختر الإجراء الإداري المطلوب لتنفيذه وتوثيقه فوراً:').setColor('#2c3e50');
@@ -373,19 +333,9 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.reply({ embeds: [embed], components: [row1, row2, row3], ephemeral: true });
         }
 
-        // استدعاء المودالات الإدارية مع تشالنج التحدي الأمني (رموز الـ OTP الفورية)
+        // الأزرار الإدارية المباشرة (فتح نافذة إدخال البيانات المدمج بها الـ OTP الأمني منعاً للـ Crash)
         if (customId.startsWith('admin_') && customId !== 'admin_panel_shortcut') {
             const actionType = customId.split('_')[1];
-            
-            // قفل أمني (تحدي رمز عشوائي للقرارات الصعبة مثل سحب النقاط، الإنذار، أو الفصل)
-            if (actionType === 'warn' || actionType === 'fire' || customId.includes('remove')) {
-                const otpCode = Math.floor(1000 + Math.random() * 9000).toString(); // كود عشوائي من 4 أرقام
-                securityOtps.set(user.id, { originalId: customId, code: otpCode });
-                
-                const securityModal = new ModalBuilder().setCustomId(`security_otp_modal`).setTitle('🔐 نظام الحماية: تأكيد الهوية الإدارية');
-                securityModal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('otp_input').setLabel(`اكتب رمز التحقق الأمني الظاهر أمامك: [ ${otpCode} ]`).setStyle(TextInputStyle.Short).setRequired(true)));
-                return await interaction.showModal(securityModal);
-            }
 
             if (actionType === 'promote' || actionType === 'demote') {
                 const modal = new ModalBuilder().setCustomId(`modal_getid_${actionType}`).setTitle(actionType === 'promote' ? "📈 ترقية موظف" : "📉 كسر رتبة موظف");
@@ -408,90 +358,79 @@ client.on('interactionCreate', async (interaction) => {
                 modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('target_staff_id').setLabel('أدخل ID الموظف المستهدف:').setStyle(TextInputStyle.Short).setRequired(true)));
                 return await interaction.showModal(modal);
             }
+
+            // هنا توليد الرمز وتمريره داخل نفس النافذة بشكل مباشر وذكي
+            if (actionType === 'warn' || actionType === 'fire' || customId.includes('remove')) {
+                const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+                securityOtps.set(user.id, otpCode); // حفظ الرمز لمطابقته لاحقاً
+
+                let title = actionType === 'warn' ? '⚠️ تحذير موظف صحة' : (actionType === 'fire' ? '❌ قرار فصل رسمي' : '➖ سحب نقاط وعقوبة');
+                let label2 = actionType.includes('points') ? 'عدد النقاط المراد سحبها:' : 'السبب الحقيقي للقرار:';
+
+                const unifiedModal = new ModalBuilder().setCustomId(`modal_direct_${customId}`).setTitle(title);
+                unifiedModal.addComponents(
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('target_id').setLabel("ID الموظف المستهدف:").setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('reason_value').setLabel(label2).setStyle(TextInputStyle.Short).setRequired(true)),
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('security_otp_input').setLabel(`اكتب الرمز الأمني الظاهر هنا: [ ${otpCode} ]`).setStyle(TextInputStyle.Short).setRequired(true))
+                );
+                return await interaction.showModal(unifiedModal);
+            }
         }
     }
 
-    // معالجة القوائم المنسدلة للدسباتش وإرسال التقارير
+    // القوائم المنسدلة للدسباتش التلقائي
     if (interaction.isStringSelectMenu() && interaction.customId.startsWith('dispatch_dyn_zone_')) {
-        if (!client.dispatchSessions) client.dispatchSessions = new Map();
-        const session = client.dispatchSessions.get(interaction.user.id);
-        if (!session) return interaction.reply({ content: '❌ انتهت الجلسة الأمنية، يرجى إعادة فتح اللوحة.', ephemeral: true });
-        const selectedValue = interaction.values[0];
-        const zoneIndex = interaction.customId.replace('dispatch_dyn_zone_', ''); 
-        session.selections[`zone_${zoneIndex}`] = selectedValue === 'empty_zone' ? '❌ غـيـر مـتـوفـر' : `<@${selectedValue}>`;
-        client.dispatchSessions.set(interaction.user.id, session);
-        const totalRequired = session.zonesNames.length;
-        const totalFilled = Object.values(session.selections).filter(val => val !== null).length;
+        if (!client.dispatchSessions) client.dispatchSessions = new Map(); const session = client.dispatchSessions.get(interaction.user.id);
+        if (!session) return interaction.reply({ content: '❌ انتهت الجلسة الأمنية.', ephemeral: true });
+        const selectedValue = interaction.values[0]; const zoneIndex = interaction.customId.replace('dispatch_dyn_zone_', ''); 
+        session.selections[`zone_${zoneIndex}`] = selectedValue === 'empty_zone' ? '❌ غـيـر مـتـوفـر' : `<@${selectedValue}>`; client.dispatchSessions.set(interaction.user.id, session);
+        const totalRequired = session.zonesNames.length; const totalFilled = Object.values(session.selections).filter(val => val !== null).length;
 
         if (totalFilled === totalRequired) {
-            const activeChannel = interaction.guild.channels.cache.get(ACTIVE_DISPATCH_CHANNEL);
-            if (!activeChannel) return interaction.reply({ content: '❌ تعذر العثور على روم إرسال التقرير.', ephemeral: true });
-            let zonesReportText = "";
-            session.zonesNames.forEach((name, index) => { zonesReportText += `🗺️ **${name} :** ${session.selections[`zone_${index}`]}\n`; });
-            const formattedMessage = `**:SAMS: | SAN ANDREAS MEDICAL SERVICES .**\n-# :megaphone: Dynamic Medical Dispatch Report .\n\n  أسـم الـديسباتـش  : ${interaction.member}\n  توقيت التوزيع  : <t:${Math.floor(Date.now() / 1000)}:t>\n\n-# **ــــــــــــــــ توزيع المناطق الطبية ــــــــــــــــ**\n${zonesReportText}\n-# إرفاق صورة إلزامي، ولن يتم اعتماد الاستبيان بدونها داخل الثريد أدناه\n-# \`[ + ]\` <@&1499850630544621639> .`;
+            const activeChannel = interaction.guild.channels.cache.get(ACTIVE_DISPATCH_CHANNEL); if (!activeChannel) return interaction.reply({ content: '❌ الروم غير موجود.', ephemeral: true });
+            let zonesReportText = ""; session.zonesNames.forEach((name, index) => { zonesReportText += `🗺️ **${name} :** ${session.selections[`zone_${index}`]}\n`; });
+            const formattedMessage = `**:SAMS: | SAN ANDREAS MEDICAL SERVICES .**\n-# :megaphone: Dynamic Medical Dispatch Report .\n\n  أسـم الـديسباتـش  : ${interaction.member}\n  توقيت التوزيع  : <t:${Math.floor(Date.now() / 1000)}:t>\n\n-# **ــــــــــــــــ توزيع المناطق الطبية ــــــــــــــــ**\n${zonesReportText}\n-# إرفاق صورة إلزامي داخل الثريد أدناه\n-# \`[ + ]\` <@&1499850630544621639> .`;
             const sentMessage = await activeChannel.send({ content: formattedMessage });
             try { await sentMessage.startThread({ name: `📸 صورة الفترة - ${interaction.user.username}`, autoArchiveDuration: 60 }); } catch (e) {}
             client.dispatchSessions.delete(interaction.user.id);
-            return await interaction.update({ content: '✅ تم توزيع جميع المناطق الحالية وإرسال تقريرك بنجاح وفُتح ثريد الصور!', embeds: [], components: [], ephemeral: true });
-        } else { return await interaction.reply({ content: `📥 تم تسجيل اختيارك للمنطقة بنجاح، يرجى إكمال باقي القوائم المعروضة.`, ephemeral: true }).catch(() => null); }
+            return await interaction.update({ content: '✅ تم إرسال تقرير الدسباتش المطور بنجاح وفُتح ثريد الصور!', embeds: [], components: [], ephemeral: true });
+        } else { return await interaction.reply({ content: `📥 تم تسجيل المنطقة بنجاح.`, ephemeral: true }).catch(() => null); }
     }
 
-    // ================= [ معالجة الـ Modals بالكامل والتحقق من الأمان ] =================
+    // ================= [ استقبال البيانات من الـ Modals والتحقق النهائي ] =================
     if (interaction.isModalSubmit()) {
         const { customId, fields, guild, user } = interaction;
 
-        // التحقق من رمز التحقق الأمني (OTP Challenge)
-        if (customId === 'security_otp_modal') {
-            const userOtpInput = fields.getTextInputValue('otp_input');
-            const savedOtpData = securityOtps.get(user.id);
-
-            if (!savedOtpData || userOtpInput !== savedOtpData.code) {
-                securityOtps.delete(user.id);
-                return interaction.reply({ content: '❌ كود التحقق الأمني خاطئ! تم إلغاء الإجراء الحساس حماية للنظام.', ephemeral: true });
-            }
-
-            // إذا نجح التحدي الأمني، يفتح البوت المودال الفعلي المطلوب فوراً
-            const originalCustomId = savedOtpData.originalId;
-            const actionType = originalCustomId.split('_')[1];
-            securityOtps.delete(user.id);
-
-            if (actionType === 'warn' || originalCustomId === 'admin_fire') {
-                const subModal = new ModalBuilder().setCustomId(`modal_direct_${originalCustomId}`).setTitle(actionType === 'warn' ? '⚠️ تحذير موظف صحة' : '❌ قرار فصل رسمي');
-                subModal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('target_id').setLabel("ID الموظف المستهدف:").setStyle(TextInputStyle.Short).setRequired(true)), new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('reason_value').setLabel("السبب الحقيقي للقرار:").setStyle(TextInputStyle.Short).setRequired(true)));
-                return await interaction.showModal(subModal);
-            }
-            if (originalCustomId === 'admin_points_remove') {
-                const subModal = new ModalBuilder().setCustomId(`modal_direct_admin_points_remove`).setTitle("➖ سحب نقاط وعقوبة");
-                subModal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('target_id').setLabel("ID الموظف المستهدف:").setStyle(TextInputStyle.Short).setRequired(true)), new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('reason_value').setLabel("عدد النقاط المراد سحبها:").setStyle(TextInputStyle.Short).setRequired(true)));
-                return await interaction.showModal(subModal);
-            }
-        }
-
-        // إرسال رد على السؤال لخاص العضو
         if (customId.startsWith('modal_answer_submit_')) {
-            const targetUserId = customId.replace('modal_answer_submit_', '');
-            const adminAnswerText = fields.getTextInputValue('answer_text_input');
-            const targetUser = await client.users.fetch(targetUserId).catch(() => null);
-            const oldEmbed = interaction.message.embeds[0];
+            const targetUserId = customId.replace('modal_answer_submit_', ''); const adminAnswerText = fields.getTextInputValue('answer_text_input');
+            const targetUser = await client.users.fetch(targetUserId).catch(() => null); const oldEmbed = interaction.message.embeds[0];
             const originalQuestionField = oldEmbed.fields.find(f => f.name === '💬 نص السؤال:').value;
-
             if (!targetUser) return interaction.reply({ content: '❌ تعذر العثور على العضو.', ephemeral: true });
             const dmEmbed = new EmbedBuilder().setTitle('✉️ إشعار رسمي: الإجابة على استفسارك').addFields({ name: '📥 سؤالك الأصلي:', value: originalQuestionField }, { name: '🟢 الإجابة والبيان:', value: `\`\`\`text\n${adminAnswerText}\n\`\`\`` }, { name: '👮 المجيب من الإدارة:', value: `${user}` }).setColor('#2ecc71').setTimestamp();
             const success = await targetUser.send({ embeds: [dmEmbed] }).then(() => true).catch(() => false);
-            if (!success) return interaction.reply({ content: `❌ العضو مغلق الخاص لديه.`, ephemeral: true });
-
-            const updatedEmbed = EmbedBuilder.from(oldEmbed).setTitle('✅ تم الإجابة على هذا السؤال').addFields({ name: '📝 الإجابة الموجهة:', value: adminAnswerText }).setColor('#2ecc71');
-            await interaction.message.edit({ embeds: [updatedEmbed], components: [] });
+            if (!success) return interaction.reply({ content: `❌ الخاص مغلق.`, ephemeral: true });
+            await interaction.message.edit({ embeds: [EmbedBuilder.from(oldEmbed).setTitle('✅ تم الإجابة على هذا السؤال').addFields({ name: '📝 الإجابة الموجهة:', value: adminAnswerText }).setColor('#2ecc71')], components: [] });
             return interaction.reply({ content: `✅ تم إرسال الإجابة بنجاح!`, ephemeral: true });
         }
 
-        // شؤون الموظفين - الإجراءات المباشرة (النقاط، الإنذار، الفصل)
+        // شؤون الموظفين - تنفيذ الإجراءات المباشرة مع فحص الرمز الأمني المدمج
         if (customId.startsWith('modal_direct_')) {
             const actionFull = customId.replace('modal_direct_admin_', '');
             const targetId = fields.getTextInputValue('target_id');
             const reasonOrValue = fields.getTextInputValue('reason_value');
             const targetMember = await guild.members.fetch(targetId).catch(() => null);
             if (!targetMember) return interaction.reply({ content: '❌ العضو غير موجود بالسيرفر.', ephemeral: true });
+
+            // التحقق من الرمز الأمني المدمج (للقرارات الحساسة فقط)
+            if (actionFull === 'warn' || actionFull === 'fire' || actionFull.includes('remove')) {
+                const userOtpInput = fields.getTextInputValue('security_otp_input');
+                const savedOtp = securityOtps.get(user.id);
+                securityOtps.delete(user.id); // مسح الرمز فوراً لتجنب التكرار
+
+                if (!savedOtp || userOtpInput !== savedOtp) {
+                    return interaction.reply({ content: '❌ رمز التحقق الأمني الذي أدخلته خاطئ! تم إلغاء الإجراء حماية للنظام.', ephemeral: true });
+                }
+            }
 
             let logChannelId = ''; let color = '#ffffff'; let actionTitle = ''; let pointsMessageDetail = '';
             const allData = getPointsData();
@@ -521,34 +460,30 @@ client.on('interactionCreate', async (interaction) => {
                 pointsMessageDetail = `\n📊 الرصيد الإجمالي الحالي: **${newPoints}** نقطة مسجلة.`;
             }
 
-            const logEmbed = new EmbedBuilder().setTitle(actionTitle).addFields({ name: '👮 الإداري المسؤول:', value: `${user}`, inline: true }, { name: '🚑 الموظف المستهدف:', value: `${targetMember}`, inline: true }, { name: '📝 البيان والسبب:', value: reasonOrValue }).setDescription(pointsMessageDetail || null).setColor(color).setTimestamp();
+            const logEmbed = new EmbedBuilder().setTitle(actionTitle).addFields({ name: '👮 المسؤول:', value: `${user}`, inline: true }, { name: '🚑 المستهدف:', value: `${targetMember}`, inline: true }, { name: '📝 التفاصيل والسبب:', value: reasonOrValue }).setDescription(pointsMessageDetail || null).setColor(color).setTimestamp();
             const logChannel = guild.channels.cache.get(logChannelId); if (logChannel) await logChannel.send({ embeds: [logEmbed] });
-            await targetMember.send(`✉️ إشعار إداري عاجل:\nالإجراء: **${actionTitle}**\nالتفاصيل: ${reasonOrValue}`).catch(() => null);
-            return interaction.reply({ content: `✅ تم تنفيذ الإجراء الإداري وتحديث النظام وحفظ البيانات!`, ephemeral: true });
+            await targetMember.send(`✉️ إشعار رسمي:\nالإجراء: **${actionTitle}**\nالسبب: ${reasonOrValue}`).catch(() => null);
+            return interaction.reply({ content: `✅ تم تنفيذ الإجراء بنجاح وتحديث نظام البيانات واللوغات!`, ephemeral: true });
         }
 
-        // تحضير بالنيابة (دخول)
         if (customId === 'modal_force_login') {
-            const targetId = fields.getTextInputValue('target_staff_id');
-            const targetMember = await guild.members.fetch(targetId).catch(() => null);
-            if (!targetMember) return interaction.reply({ content: '❌ تعذر العثور على الموظف بالسيرفر.', ephemeral: true });
+            const targetId = fields.getTextInputValue('target_staff_id'); const targetMember = await guild.members.fetch(targetId).catch(() => null);
+            if (!targetMember) return interaction.reply({ content: '❌ تعذر العثور على الموظف.', ephemeral: true });
             if (activeDuty.has(targetId)) return interaction.reply({ content: '⚠️ مسجل دخول مسبقاً!', ephemeral: true });
             activeDuty.set(targetId, { startTime: Date.now(), afkMinutes: 0, isAfk: false });
             const logChannel = guild.channels.cache.get(LOG_DUTY_CHANNEL);
-            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🟢 تسجيل دخول إداري بالنيابة').addFields({ name: '🚑 الموظف:', value: `${targetMember}`, inline: true }, { name: '👮 المسؤول:', value: `${user}`, inline: true }).setColor('#2ecc71').setTimestamp()] });
-            return interaction.reply({ content: `✅ تم تسجيل دخول الموظف بنجاح بالنيابة عنه!`, ephemeral: true });
+            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🟢 تسجيل دخول إداري بالنيابة').addFields({ name: '🚑 الموظف:', value: `${targetMember}` }, { name: '👮 المسؤول:', value: `${user}` }).setColor('#2ecc71').setTimestamp()] });
+            return interaction.reply({ content: `✅ تم تسجيل دخول الموظف بنجاح!`, ephemeral: true });
         }
 
-        // تحضير بالنيابة (خروج)
         if (customId === 'modal_force_logout') {
-            const targetId = fields.getTextInputValue('target_staff_id');
-            const targetMember = await guild.members.fetch(targetId).catch(() => null);
-            if (!targetMember || !activeDuty.has(targetId)) return interaction.reply({ content: '❌ غير مسجل بالخدمة حالياً أو الآي دي خطأ.', ephemeral: true });
+            const targetId = fields.getTextInputValue('target_staff_id'); const targetMember = await guild.members.fetch(targetId).catch(() => null);
+            if (!targetMember || !activeDuty.has(targetId)) return interaction.reply({ content: '❌ غير مسجل بالخدمة حالياً.', ephemeral: true });
             const data = activeDuty.get(targetId); activeDuty.delete(targetId);
             const diffMins = Math.floor((Date.now() - data.startTime) / 60000);
             const allData = getPointsData(); allData.duty_hours[targetId] = (allData.duty_hours[targetId] || 0) + diffMins; savePointsData(allData);
             const logChannel = guild.channels.cache.get(LOG_DUTY_CHANNEL);
-            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🔴 تسجيل خروج إداري بالنيابة').addFields({ name: '🚑 الموظف:', value: `${targetMember}`, inline: true }, { name: '👮 المسؤول:', value: `${user}`, inline: true }, { name: '⏰ مدة المناوبة:', value: `**${Math.floor(diffMins / 60)}** ساعة` }).setColor('#e74c3c').setTimestamp()] });
+            if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🔴 تسجيل خروج إداري بالنيابة').addFields({ name: '🚑 الموظف:', value: `${targetMember}` }, { name: '👮 المسؤول:', value: `${user}` }, { name: '⏰ مدة المناوبة:', value: `**${Math.floor(diffMins / 60)}** ساعة` }).setColor('#e74c3c').setTimestamp()] });
             return interaction.reply({ content: `✅ تم تسجيل خروج الموظف وحفظ ساعاته بنجاح.`, ephemeral: true });
         }
     }
