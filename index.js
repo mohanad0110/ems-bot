@@ -64,6 +64,10 @@ const DISPATCH_CONTROL_CHANNEL = '1519907806356967575';
 const ACTIVE_DISPATCH_CHANNEL = '1515788576426819724';  
 const LOG_DISPATCH_DUTY_CHANNEL = '1519908274915250288'; 
 
+// ❓ إعدادات روم الأسئلة وروم إدارة الإجابات الجديد ❓
+const CHANNEL_QUESTIONS = '1515788550329597984'; 
+const CHANNEL_ADMIN_ANSWERS = '1515788520378204263'; 
+
 // 🖼️ روابط الصور المنفصلة الثلاثة وصورة غلاف اللوحة
 const URL_APPLY_PANEL_IMAGE = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
 const URL_TICKET_IMAGE      = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
@@ -124,7 +128,7 @@ function createDutyEmbed(guild) {
 // ==========================================================================================
 
 client.on('ready', () => {
-    console.log(`✅ البوت جاهز، ومفعل نظام الترحيب والديوتي والدسباتش: ${client.user.tag}`);
+    console.log(`✅ البوت جاهز، ومفعل نظام الترحيب والديوتي والدسباتش والأسئلة السرية: ${client.user.tag}`);
 });
 
 const activeActions = new Map();
@@ -152,7 +156,43 @@ client.on('guildMemberAdd', async (member) => {
 });
 
 client.on('messageCreate', async (message) => {
-    if (!message.content.startsWith(PREFIX) || message.author.bot) return;
+    if (message.author.bot) return;
+
+    // ❓ [نظام مراقبة روم الأسئلة الذكي والمسح الفوري] ❓
+    if (message.channelId === CHANNEL_QUESTIONS) {
+        const questionText = message.content.trim();
+        if (!questionText) return;
+
+        // حذف رسالة العضو فوراً لإبقاء الشات نظيفاً
+        await message.delete().catch(() => null);
+
+        const adminChannel = message.guild.channels.cache.get(CHANNEL_ADMIN_ANSWERS);
+        if (!adminChannel) return message.author.send("❌ خطأ: لم يتم العثور على روم إدارة الأسئلة، يرجى إبلاغ الإدارة العليا.").catch(() => null);
+
+        // إرسال السؤال إلى روم الإدارة المخصص
+        const questionEmbed = new EmbedBuilder()
+            .setTitle('❓ سؤال جديد يحتاج إلى إجابة طاقم الإدارة')
+            .addFields(
+                { name: '👤 المرسل:', value: `${message.author} (\`${message.author.id}\`)`, inline: true },
+                { name: '📅 التوقيت:', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true },
+                { name: '💬 نص السؤال:', value: `\`\`\`text\n${questionText}\n\`\`\`` }
+            )
+            .setColor('#f1c40f').setTimestamp();
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setCustomId(`answer_question_btn_${message.author.id}`) // نمرر الـ ID الخاص بالسائل في معرف الزر
+                .setLabel('📝 الإجابة على السؤال')
+                .setStyle(ButtonStyle.Primary)
+        );
+
+        await adminChannel.send({ embeds: [questionEmbed], components: [row] });
+        
+        // طمأنة العضو بالخاص أنه تم استلام سؤاله بنجاح
+        return message.author.send(`✅ تم استلام سؤالك بنجاح وجاري مراجعته من قِبل الإدارة الطبية، سيصلك الجواب هنا في الخاص فوراً.`).catch(() => null);
+    }
+
+    if (!message.content.startsWith(PREFIX)) return;
 
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
@@ -251,7 +291,7 @@ client.on('messageCreate', async (message) => {
         
         const embed = new EmbedBuilder()
             .setTitle('🚑 مركز عمليات قطاع الصحة | Medical Dispatch Panel')
-            .setDescription('مرحباً بك في لوحة تحكم نظام الدسباتش الموحدة.\nيرجى استخدام الأزرار أدناه لتسجيل فترتك الحالية، أو لتوزيع الـ Zones عند النهاية.\n\n🟢 **دخول فترة دسباتش:** لبدء احتساب وقت الشفت الخاص بك.\n🔴 **خروج فترة دسباتش:** لإنهاء شفتك وحفظ ساعات العمل.\n📝 **توزيع المناطق الذكي:** لرفع تقرير وتوزيع المناطق تلقائياً عبر قوائم منسدلة.')
+            .setDescription('مرحباً بك في لوحة تحكم نظام الدسباتش الموحدة.\nيرجى استخدام الأزرار أدناه لتسجيل فترتك الحالية، أو لتوزيع الـ Zones عند النهاية.\n\n🟢 **دخول فترة دسباتش:** لبدء احتويت وقت الشفت الخاص بك.\n🔴 **خروج فترة دسباتش:** لإنهاء شفتك وحفظ ساعات العمل.\n📝 **توزيع المناطق الذكي:** لرفع تقرير وتوزيع المناطق تلقائياً عبر قوائم منسدلة.')
             .setColor('#e74c3c')
             .setTimestamp();
 
@@ -269,14 +309,11 @@ client.on('messageCreate', async (message) => {
     if (command === 'add-zone') {
         if (!message.member.permissions.has(PermissionFlagsBits.Administrator)) return message.reply('❌ للادارة العليا فقط.');
         const zoneName = args.join(' ');
-        if (!zoneName) return message.reply('❌ يرجى كتابة اسم المنطقة، مثال: `!add-zone Zone 5` أو `!add-zone مستشفى المدينة`');
+        if (!zoneName) return message.reply('❌ يرجى كتابة اسم المنطقة، مثال: `!add-zone Zone 5`');
 
         const allData = getPointsData();
         if (allData.custom_zones.includes(zoneName)) return message.reply('⚠️ هذه المنطقة موجودة بالفعل في اللوحة!');
-        
-        if (allData.custom_zones.length >= 5) {
-            return message.reply('⚠️ الحد الأقصى للمناطق في الرسالة الواحدة هو 5 مناطق بسبب قيود ديسكورد الصارمة.');
-        }
+        if (allData.custom_zones.length >= 5) return message.reply('⚠️ الحد الأقصى للمناطق في الرسالة الواحدة هو 5 مناطق.');
 
         allData.custom_zones.push(zoneName);
         savePointsData(allData);
@@ -300,6 +337,69 @@ client.on('messageCreate', async (message) => {
 
 client.on('interactionCreate', async (interaction) => {
     
+    // ❓ [تفاعل فتح مودال الإجابة على الأسئلة] ❓
+    if (interaction.isButton() && interaction.customId.startsWith('answer_question_btn_')) {
+        const applicantId = interaction.customId.replace('answer_question_btn_', '');
+        
+        const modal = new ModalBuilder()
+            .setCustomId(`modal_answer_submit_${applicantId}`)
+            .setTitle('📝 كتابة الإجابة الرسمية على السؤال');
+
+        modal.addComponents(
+            new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                    .setCustomId('answer_text_input')
+                    .setLabel('اكتب تفاصيل الإجابة بوضوح هنا:')
+                    .setStyle(TextInputStyle.Paragraph)
+                    .setRequired(true)
+            )
+        );
+        return await interaction.showModal(modal);
+    }
+
+    // ❓ [استلام الإجابة من المودال وإرسالها بالخاص] ❓
+    if (interaction.isModalSubmit() && interaction.customId.startsWith('modal_answer_submit_')) {
+        const targetUserId = interaction.customId.replace('modal_answer_submit_', '');
+        const adminAnswerText = interaction.fields.getTextInputValue('answer_text_input');
+
+        const targetUser = await interaction.client.users.fetch(targetUserId).catch(() => null);
+        
+        // جلب السؤال الأصلي المكتوب في الإمبيد لتذكير العضو بسؤاله
+        const oldEmbed = interaction.message.embeds[0];
+        const originalQuestionField = oldEmbed.fields.find(f => f.name === '💬 نص السؤال:').value;
+
+        if (!targetUser) {
+            return interaction.reply({ content: '❌ تعذر العثور على صاحب السؤال بالسيرفر، قد يكون غادر أو حسابه مغلق.', ephemeral: true });
+        }
+
+        // صياغة إمبيد الخاص للعضو
+        const userDmEmbed = new EmbedBuilder()
+            .setTitle('✉️ إشعار رسمي: الإجابة على استفسارك')
+            .setDescription(`مرحباً بك، قامت الإدارة الطبية بمراجعة سؤالك وجاء الرد كالتالي:`)
+            .addFields(
+                { name: '📥 سؤالك الأصلي:', value: originalQuestionField },
+                { name: '🟢 الإجابة والبيان:', value: `\`\`\`text\n${adminAnswerText}\n\`\`\`` },
+                { name: '👮 المجيب من الإدارة:', value: `${interaction.user}` }
+            )
+            .setColor('#2ecc71').setTimestamp();
+
+        // إرسال الإجابة لخاص الموظف
+        const sendSuccess = await targetUser.send({ embeds: [userDmEmbed] }).then(() => true).catch(() => false);
+
+        if (!sendSuccess) {
+            return interaction.reply({ content: `❌ تعذر إرسال الإجابة، الموظف مغلق الخاص (DMs) لديه.`, ephemeral: true });
+        }
+
+        // تحديث إمبيد روم الإدارة ليوضح أنه تم الإجابة بنجاح وإلغاء الأزرار
+        const updatedAdminEmbed = EmbedBuilder.from(oldEmbed)
+            .setTitle('✅ تم الإجابة على هذا السؤال وإرسالها للخاص')
+            .addFields({ name: '📝 الإجابة الموجهة:', value: adminAnswerText })
+            .setColor('#2ecc71');
+
+        await interaction.message.edit({ embeds: [updatedAdminEmbed], components: [] });
+        return interaction.reply({ content: `✅ تم إرسال الإجابة لخاص الموظف بنجاح وتحديث اللوق!`, ephemeral: true });
+    }
+
     // ================= [ نظام الدخول والخروج - الموظفين ] =================
     if (interaction.isButton() && interaction.customId === 'duty_on_btn') {
         if (activeDuty.has(interaction.user.id)) return interaction.reply({ content: '⚠️ أنت مسجل دخولك بالفعل بالخدمة مسبقاً!', ephemeral: true });
@@ -425,11 +525,7 @@ client.on('interactionCreate', async (interaction) => {
             }
         }
 
-        staffOptions.push({
-            label: '❌ لا يوجد موظف متاح لهذه المنطقة',
-            value: 'empty_zone',
-            description: 'إبقاء المنطقة شاغرة مؤقتاً'
-        });
+        staffOptions.push({ label: '❌ لا يوجد موظف متاح لهذه المنطقة', value: 'empty_zone', description: 'إبقاء المنطقة شاغرة مؤقتاً' });
 
         const allData = getPointsData();
         const currentZones = allData.custom_zones;
@@ -459,10 +555,7 @@ client.on('interactionCreate', async (interaction) => {
         });
 
         if (!client.dispatchSessions) client.dispatchSessions = new Map();
-        client.dispatchSessions.set(interaction.user.id, { 
-            selections: initialSessionZones, 
-            zonesNames: currentZones 
-        });
+        client.dispatchSessions.set(interaction.user.id, { selections: initialSessionZones, zonesNames: currentZones });
 
         await interaction.reply({ embeds: [setupEmbed], components: rows, ephemeral: true });
     }
@@ -518,7 +611,6 @@ ${zonesReportText}
     // ================= [ نظام التقديم الذكي المطور (Modal + أزرار) ] =================
     if (interaction.isButton() && interaction.customId === 'ems_apply_btn') {
         const modal = new ModalBuilder().setCustomId('ems_apply_modal').setTitle('استمارة الانضمام لقطاع الصحة');
-        
         modal.addComponents(
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('apply_name').setLabel("الاسم الثلاثي:").setStyle(TextInputStyle.Short).setRequired(true)),
             new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('apply_age').setLabel("العمر والفل الحقيقي:").setStyle(TextInputStyle.Short).setRequired(true)),
@@ -537,36 +629,21 @@ ${zonesReportText}
         const logChannel = interaction.guild.channels.cache.get(CHANNEL_APPLY_LOG);
         if (!logChannel) return interaction.reply({ content: '❌ خطأ: روم تقديم الطلبات غير موجودة.', ephemeral: true });
 
-        const applyEmbed = new EmbedBuilder()
-            .setTitle('📝 طلب انضمام جديد لقطاع الصحة')
-            .setDescription(`**صاحب الطلب:** ${interaction.user}\n**الـ ID:** \`${interaction.user.id}\``)
-            .addFields(
-                { name: '👤 الاسم:', value: name, inline: true },
-                { name: '🎂 العمر:', value: age, inline: true },
-                { name: '⏱️ الساعات اليومية:', value: hours, inline: true },
-                { name: '📖 الخبرات السابقة:', value: exp }
-            ).setColor('#e74c3c').setTimestamp();
-
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`app_accept_${interaction.user.id}`).setLabel('قبول الطلب ✅').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId(`app_reject_${interaction.user.id}`).setLabel('رفض الطلب ❌').setStyle(ButtonStyle.Danger)
-        );
+        const applyEmbed = new EmbedBuilder().setTitle('📝 طلب انضمام جديد لقطاع الصحة').setDescription(`**صاحب الطلب:** ${interaction.user}\n**الـ ID:** \`${interaction.user.id}\``).addFields({ name: '👤 الاسم:', value: name, inline: true }, { name: '🎂 العمر:', value: age, inline: true }, { name: '⏱️ الساعات اليومية:', value: hours, inline: true }, { name: '📖 الخبرات السابقة:', value: exp }).setColor('#e74c3c').setTimestamp();
+        const row = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId(`app_accept_${interaction.user.id}`).setLabel('قبول الطلب ✅').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId(`app_reject_${interaction.user.id}`).setLabel('رفض الطلب ❌').setStyle(ButtonStyle.Danger));
 
         await logChannel.send({ embeds: [applyEmbed], components: [row] });
         return interaction.reply({ content: '✅ تم إرسال استمارتك بنجاح للإدارة الطبية، انتظر الرد في الخاص.', ephemeral: true });
     }
 
     if (interaction.isButton() && interaction.customId.startsWith('app_')) {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.ManageRoles)) {
-            return interaction.reply({ content: '❌ ليس لديك صلاحية اتخاذ القرار في التقديمات.', ephemeral: true });
-        }
+        if (!interaction.member.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.reply({ content: '❌ ليس لديك صلاحية اتخاذ القرار في التقديمات.', ephemeral: true });
 
         const [, action, applicantId] = interaction.customId.split('_');
         const applicant = await interaction.guild.members.fetch(applicantId).catch(() => null);
         
         const oldEmbed = interaction.message.embeds[0];
-        const updatedEmbed = EmbedBuilder.from(oldEmbed)
-            .addFields({ name: '📢 قرار الإدارة:', value: action === 'accept' ? `🟢 تم القبول بواسطة ${interaction.user}` : `🔴 تم الرفض بواسطة ${interaction.user}` });
+        const updatedEmbed = EmbedBuilder.from(oldEmbed).addFields({ name: '📢 قرار الإدارة:', value: action === 'accept' ? `🟢 تم القبول بواسطة ${interaction.user}` : `🔴 تم الرفض بواسطة ${interaction.user}` });
 
         await interaction.message.edit({ embeds: [updatedEmbed], components: [] });
         const decisionChannel = interaction.guild.channels.cache.get(LOG_APPLY_DECISION);
@@ -586,25 +663,12 @@ ${zonesReportText}
 
     // ================= [ قائمة شؤون الموظفين السريعة بالنيابة ] =================
     if (interaction.isButton() && interaction.customId === 'admin_panel_shortcut') {
-        if (!interaction.member.permissions.has(PermissionFlagsBits.ManageRoles)) {
-            return interaction.reply({ content: '❌ هذا الزر مخصص لإدارة شؤون الموظفين فقط.', ephemeral: true });
-        }
+        if (!interaction.member.permissions.has(PermissionFlagsBits.ManageRoles)) return interaction.reply({ content: '❌ هذا الزر مخصص لإدارة شؤون الموظفين فقط.', ephemeral: true });
         
         const embed = new EmbedBuilder().setTitle('⚙️ لوحة تحكم إدارة قطاع الصحة السريعة ⚙️').setDescription('اختر الإجراء الإداري المطلوب لتنفيذه وتوثيقه فوراً:').setColor('#2c3e50');
-        const row1 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('admin_promote').setLabel('ترقية موظف 📈').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('admin_demote').setLabel('كسر رتبة 📉').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('admin_warn').setLabel('تحذير موظف ⚠️').setStyle(ButtonStyle.Danger)
-        );
-        const row2 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('admin_points_add').setLabel('إضافة نقاط ➕').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('admin_points_remove').setLabel('سحب نقاط ➖').setStyle(ButtonStyle.Secondary),
-            new ButtonBuilder().setCustomId('admin_points_check').setLabel('ساعات ونقاط الموظف 🔍').setStyle(ButtonStyle.Primary)
-        );
-        const row3 = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('admin_force_on').setLabel('تسجيل دخول لموظف 🟢').setStyle(ButtonStyle.Success),
-            new ButtonBuilder().setCustomId('admin_force_off').setLabel('تسجيل خروج لموظف 🔴').setStyle(ButtonStyle.Danger)
-        );
+        const row1 = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('admin_promote').setLabel('ترقية موظف 📈').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId('admin_demote').setLabel('كسر رتبة 📉').setStyle(ButtonStyle.Primary), new ButtonBuilder().setCustomId('admin_warn').setLabel('تحذير موظف ⚠️').setStyle(ButtonStyle.Danger));
+        const row2 = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('admin_points_add').setLabel('إضافة نقاط ➕').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('admin_points_remove').setLabel('سحب نقاط ➖').setStyle(ButtonStyle.Secondary), new ButtonBuilder().setCustomId('admin_points_check').setLabel('ساعات ونقاط الموظف 🔍').setStyle(ButtonStyle.Primary));
+        const row3 = new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId('admin_force_on').setLabel('تسجيل دخول لموظف 🟢').setStyle(ButtonStyle.Success), new ButtonBuilder().setCustomId('admin_force_off').setLabel('تسجيل خروج لموظف 🔴').setStyle(ButtonStyle.Danger));
         await interaction.reply({ embeds: [embed], components: [row1, row2, row3], ephemeral: true });
     }
 
@@ -769,7 +833,7 @@ ${zonesReportText}
                 if (ROLE_WARN_2 && ROLE_WARN_2.length > 5) await targetMember.roles.remove(ROLE_WARN_2).catch(() => null);
                 if (ROLE_WARN_3 && ROLE_WARN_3.length > 5) await targetMember.roles.add(ROLE_WARN_3).catch(() => null);
             }
-            actionTitle = `⚠️ توجيه إنذار / تحذير طاقم فرعي [وورن ${newWarns}]`; 
+            actionTitle = `⚠️ توججه إنذار / تحذير طاقم فرعي [وورن ${newWarns}]`; 
             pointsMessageDetail = `\n📊 السجل التراكمي للتحذيرات: العضو لديه الآن **${newWarns}** تحذيرات وتم تحديث رتبته بالسيرفر.`;
         }
         else if (actionFull === 'fire') { 
