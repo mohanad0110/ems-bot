@@ -17,13 +17,13 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent, // تفعيله ضروري لقراءة أوامر الـ !
+        GatewayIntentBits.MessageContent, 
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildVoiceStates 
     ]
 });
 
-const PREFIX = '!'; // العودة للنظام المستقر المباشر
+const PREFIX = '!'; 
 const POINTS_FILE = './points.json';
 
 function getPointsData() {
@@ -60,8 +60,12 @@ const DISPATCH_CONTROL_CHANNEL = '1519907806356967575';
 const ACTIVE_DISPATCH_CHANNEL = '1515788576426819724';  
 const LOG_DISPATCH_DUTY_CHANNEL = '1519908274915250288'; 
 
-const CHANNEL_QUESTIONS = '1515788550329597984'; // ضَع ID روم الأسئلة questions هنا
-const CHANNEL_ADMIN_ANSWERS = '1515788520378204263'; // ضَع ID روم الإدارة المخصص للإجابات هنا
+const CHANNEL_QUESTIONS = '1515788550329597984'; 
+const CHANNEL_ADMIN_ANSWERS = '1515788520378204263'; 
+
+// 📢 [رومات نظام التقارير التلقائي الجديد] 📢
+const CHANNEL_ADMIN_REPORT_INPUT = '1515788514942517371'; // ضَع هنا ID روم الإدارة (اللي تكتب فيه التقرير)
+const CHANNEL_PUBLIC_REPORT_OUTPUT = '1515788559322190067'; // ضَع هنا ID روم التقارير العام (اللي ينشر فيه البوت للموظفين)
 
 const URL_APPLY_PANEL_IMAGE = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
 const URL_ADMIN_PANEL_IMAGE = 'https://media.discordapp.net/attachments/1515788498638995607/1517239853241209073/Medic13x.png?ex=6a3a2c79&is=6a38daf9&hm=6bdfe04cd3b1bacc103b5224aabce28cff736cf47901d6435fed1f4ac7830521&=&format=webp&quality=lossless&width=1872&height=559'; 
@@ -116,7 +120,6 @@ function createDutyEmbed(guild) {
     return embed;
 }
 
-// 📊 دالة توليد الرسوم البيانية الذكية تلقائياً
 function generateChartUrl(points, hours, warnings) {
     const chartConfig = {
         type: 'doughnut',
@@ -138,7 +141,6 @@ function generateChartUrl(points, hours, warnings) {
     return `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify(chartConfig))}&bg=23272a`;
 }
 
-// 📈 محرك فحص الترقيات التلقائي
 async function checkAndExecuteAutoPromotion(member, guild) {
     const allData = getPointsData();
     const userId = member.id;
@@ -165,7 +167,7 @@ async function checkAndExecuteAutoPromotion(member, guild) {
 }
 
 client.on('ready', () => {
-    console.log(`✅ البوت جاهز ومصحح بنظام الـ Prefix الرسمية (!): ${client.user.tag}`);
+    console.log(`✅ البوت جاهز ومكتمل بجميع ميزات الصدمة ونظام التقارير التلقائي: ${client.user.tag}`);
 
     // Backup تلقائي كل 24 ساعة
     setInterval(async () => {
@@ -175,7 +177,7 @@ client.on('ready', () => {
         }
     }, 1000 * 60 * 60 * 24);
 
-    // رادار الصوت لمنع خمول كتم المايك
+    // رادار الصوت
     setInterval(() => {
         activeDuty.forEach(async (data, userId) => {
             const guild = client.guilds.cache.first(); if (!guild) return;
@@ -197,17 +199,45 @@ client.on('ready', () => {
                         savePointsData(allData);
                     }
                     const logChannel = guild.channels.cache.get(LOG_DUTY_CHANNEL);
-                    if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🚨 طرد تلقائي عبر رادار الصوت').setDescription(`تم إخراج ${member} من الخدمة بسبب كتم المايك أو التواجد الوهمي الخامل لـ 20 دقيقة.`).setColor('#e74c3c').setTimestamp()] });
-                    await member.send(`🚨 قرار نظام: تم إلغاء شفتك الحالي وحفظ ساعاتك الفعلية بسبب كتم المايك المطول.`).catch(() => null);
+                    if (logChannel) await logChannel.send({ embeds: [new EmbedBuilder().setTitle('🚨 طرد تلقائي عبر رادار الصوت').setDescription(`تم إخراج ${member} من الخدمة بسبب كتم المايك أو التواجد الوهمي لـ 20 دقيقة.`).setColor('#e74c3c').setTimestamp()] });
+                    await member.send(`🚨 قرار نظام: تم إلغاء شفتك الحالي بسبب كتم المايك المطول.`).catch(() => null);
                 }
             } else { data.afkMinutes = 0; data.isAfk = false; }
         });
     }, 60000);
 });
 
-// نظام روم الأسئلة ومسحها
+// مراقبة الرسائل (الأسئلة والتقارير التلقائية وأوامر الـ !)
 client.on('messageCreate', async (message) => {
     if (message.author.bot) return;
+
+    // 📢 [نظام نشر التقارير التلقائي الجبار] 📢
+    if (message.channelId === CHANNEL_ADMIN_REPORT_INPUT) {
+        const reportContent = message.content.trim();
+        if (!reportContent) return;
+
+        // مسح الرسالة الأصلية من روم الإدارة عشان يظل نظيف
+        await message.delete().catch(() => null);
+
+        const publicChannel = message.guild.channels.cache.get(CHANNEL_PUBLIC_REPORT_OUTPUT);
+        if (!publicChannel) return message.author.send("❌ خطأ: تعذر العثور على روم نشر التقارير العام بالسيرفر.").catch(() => null);
+
+        // تنسيق التقرير داخل إمبيد فخم ومحترف
+        const reportEmbed = new EmbedBuilder()
+            .setTitle('🚑 | بيان رسمي صادر عن إدارة قطاع الصحة')
+            .setDescription(reportContent)
+            .setColor('#e74c3c')
+            .setFooter({ text: `حرر بواسطة الإداري: ${message.author.username}`, iconURL: message.author.displayAvatarURL() })
+            .setTimestamp();
+
+        // نشر التقرير مع منشن الجميع
+        await publicChannel.send({ content: '📢 @everyone | **تقرير إداري جديد عاجل يرجى القراءة والالتزام:**', embeds: [reportEmbed] });
+        
+        // إشعار الإداري بنجاح العملية
+        return message.channel.send(`✅ **تم نشر تقريرك بنجاح في الروم العام وعمل منشن للجميع!**`).then(msg => setTimeout(() => msg.delete().catch(() => null), 5000));
+    }
+
+    // نظام روم الأسئلة
     if (message.channelId === CHANNEL_QUESTIONS) {
         const questionText = message.content.trim(); if (!questionText) return;
         await message.delete().catch(() => null);
@@ -220,7 +250,6 @@ client.on('messageCreate', async (message) => {
         return message.author.send(`✅ تم استلام سؤالك بنجاح وجاري مراجعته، سيصلك الجواب هنا بالخاص فوراً.`).catch(() => null);
     }
 
-    // معالجة أوامر الـ ! المستقرة المباشرة
     if (!message.content.startsWith(PREFIX)) return;
     const args = message.content.slice(PREFIX.length).trim().split(/ +/);
     const command = args.shift().toLowerCase();
@@ -287,7 +316,7 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// ================= [ معالجة الـ Interacitons والـ Buttons والـ Modals ] =================
+// ================= [ معالجة الـ Interactions والـ Buttons والـ Modals ] =================
 client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton()) {
         const { customId, user, guild } = interaction;
